@@ -17,6 +17,7 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+import codecs
 import os
 import re
 import doctest
@@ -24,6 +25,10 @@ import testtools
 import xml.etree.ElementTree as XML
 import yaml
 from jenkins_jobs.builder import XmlJob, YamlParser, ModuleRegistry
+from jenkins_jobs.modules import (project_flow,
+                                  project_matrix,
+                                  project_maven,
+                                  project_multijob)
 
 
 def get_scenarios(fixtures_path):
@@ -61,7 +66,7 @@ class BaseTestCase(object):
     def __read_content(self):
         # Read XML content, assuming it is unicode encoded
         xml_filepath = os.path.join(self.fixtures_path, self.xml_filename)
-        xml_content = u"%s" % open(xml_filepath, 'r').read()
+        xml_content = u"%s" % codecs.open(xml_filepath, 'r', 'utf-8').read()
 
         yaml_filepath = os.path.join(self.fixtures_path, self.yaml_filename)
         with file(yaml_filepath, 'r') as yaml_file:
@@ -74,8 +79,21 @@ class BaseTestCase(object):
             return
 
         yaml_content, expected_xml = self.__read_content()
+        project = None
+        if ('project-type' in yaml_content):
+            if (yaml_content['project-type'] == "maven"):
+                project = project_maven.Maven(None)
+            elif (yaml_content['project-type'] == "matrix"):
+                project = project_matrix.Matrix(None)
+            elif (yaml_content['project-type'] == "flow"):
+                project = project_flow.Flow(None)
+            elif (yaml_content['project-type'] == "multijob"):
+                project = project_multijob.MultiJob(None)
 
-        xml_project = XML.Element('project')  # root element
+        if project:
+            xml_project = project.root_xml(yaml_content)
+        else:
+            xml_project = XML.Element('project')
         parser = YamlParser()
         pub = self.klass(ModuleRegistry({}))
 
@@ -83,7 +101,8 @@ class BaseTestCase(object):
         pub.gen_xml(parser, xml_project, yaml_content)
 
         # Prettify generated XML
-        pretty_xml = XmlJob(xml_project, 'fixturejob').output()
+        pretty_xml = unicode(XmlJob(xml_project, 'fixturejob').output(),
+                             'utf-8')
 
         self.assertThat(
             pretty_xml,

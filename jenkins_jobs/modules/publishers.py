@@ -40,12 +40,13 @@ def archive(parser, xml_parent, data):
     :arg str excludes: path specifier for artifacts to exclude
     :arg bool latest-only: only keep the artifacts from the latest
       successful build
+    :arg bool allow-empty:  pass the build if no artifacts are
+      found (default false)
 
-    Example::
+    Example:
 
-      publishers:
-        - archive:
-            artifacts: '*.tar.gz'
+    .. literalinclude::  /../../tests/publishers/fixtures/archive001.yaml
+
     """
     logger = logging.getLogger("%s:archive" % __name__)
     archiver = XML.SubElement(xml_parent, 'hudson.tasks.ArtifactArchiver')
@@ -65,6 +66,11 @@ def archive(parser, xml_parent, data):
         latest.text = 'true'
     else:
         latest.text = 'false'
+
+    if 'allow-empty' in data:
+        empty = XML.SubElement(archiver, 'allowEmptyArchive')
+        # Default behavior is to fail the build.
+        empty.text = str(data.get('allow-empty', False)).lower()
 
 
 def blame_upstream(parser, xml_parent, data):
@@ -93,7 +99,7 @@ def emotional_jenkins(parser, xml_parent, data):
 
     Example:
 
-    .. literalinclude:: ../../tests/publishers/fixtures/emotional-jenkins.yaml
+    .. literalinclude:: /../../tests/publishers/fixtures/emotional-jenkins.yaml
     """
     XML.SubElement(xml_parent,
                    'org.jenkinsci.plugins.emotional__jenkins.'
@@ -282,11 +288,11 @@ def cloverphp(parser, xml_parent, data):
 
     Minimal example:
 
-      .. literalinclude:: ../../tests/publishers/fixtures/cloverphp001.yaml
+      .. literalinclude:: /../../tests/publishers/fixtures/cloverphp001.yaml
 
     Full example:
 
-      .. literalinclude:: ../../tests/publishers/fixtures/cloverphp002.yaml
+      .. literalinclude:: /../../tests/publishers/fixtures/cloverphp002.yaml
 
     """
     cloverphp = XML.SubElement(
@@ -671,20 +677,30 @@ def junit(parser, xml_parent, data):
     :arg str results: results filename
     :arg bool keep-long-stdio: Retain long standard output/error in test
       results (default true).
+    :arg bool test-stability: Add historical information about test
+        results stability (default false).
+        Requires the Jenkins `Test stability Plugin
+        <https://wiki.jenkins-ci.org/display/JENKINS/Test+stability+plugin>`_.
 
-    Example::
+    Minimal example using defaults:
 
-      publishers:
-        - junit:
-            results: nosetests.xml
-            keep-long-stdio: false
+    .. literalinclude::  /../../tests/publishers/fixtures/junit001.yaml
+
+    Full example:
+
+    .. literalinclude::  /../../tests/publishers/fixtures/junit002.yaml
+
     """
     junitresult = XML.SubElement(xml_parent,
                                  'hudson.tasks.junit.JUnitResultArchiver')
     XML.SubElement(junitresult, 'testResults').text = data['results']
     XML.SubElement(junitresult, 'keepLongStdio').text = str(
         data.get('keep-long-stdio', True)).lower()
-    XML.SubElement(junitresult, 'testDataPublishers')
+    datapublisher = XML.SubElement(junitresult, 'testDataPublishers')
+    if str(data.get('test-stability', False)).lower() == 'true':
+        XML.SubElement(datapublisher,
+                       'de.esailors.jenkins.teststability'
+                       '.StabilityTestDataPublisher')
 
 
 def xunit(parser, xml_parent, data):
@@ -1073,7 +1089,7 @@ def scp(parser, xml_parent, data):
 
     Example:
 
-    .. literalinclude:: ../../tests/publishers/fixtures/scp001.yaml
+    .. literalinclude:: /../../tests/publishers/fixtures/scp001.yaml
     """
     site = data['site']
     scp = XML.SubElement(xml_parent,
@@ -1154,12 +1170,16 @@ def pipeline(parser, xml_parent, data):
     Requires the Jenkins `Build Pipeline Plugin.
     <https://wiki.jenkins-ci.org/display/JENKINS/Build+Pipeline+Plugin>`_
 
-    :Parameter: the name of the downstream project
+    :arg str project: the name of the downstream project
+    :arg str predefined-parameters: parameters to pass to the other
+      job (optional)
+    :arg bool current-parameters: Whether to include the parameters passed
+      to the current build to the triggered job (optional)
 
-    Example::
+    Example:
 
-      publishers:
-        - pipeline: deploy
+    .. literalinclude:: /../../tests/publishers/fixtures/pipeline002.yaml
+
 
     You can build pipeline jobs that are re-usable in different pipelines by
     using a :ref:`job-template` to define the pipeline jobs,
@@ -1169,11 +1189,27 @@ def pipeline(parser, xml_parent, data):
 
     See 'samples/pipeline.yaml' for an example pipeline implementation.
     """
-    if data != '':
+    if 'project' in data and data['project'] != '':
         pippub = XML.SubElement(xml_parent,
                                 'au.com.centrumsystems.hudson.plugin.'
                                 'buildpipeline.trigger.BuildPipelineTrigger')
-        XML.SubElement(pippub, 'downstreamProjectNames').text = data
+
+        configs = XML.SubElement(pippub, 'configs')
+
+        if 'predefined-parameters' in data:
+            params = XML.SubElement(configs,
+                                    'hudson.plugins.parameterizedtrigger.'
+                                    'PredefinedBuildParameters')
+            properties = XML.SubElement(params, 'properties')
+            properties.text = data['predefined-parameters']
+
+        if ('current-parameters' in data
+            and data['current-parameters']):
+            XML.SubElement(configs,
+                           'hudson.plugins.parameterizedtrigger.'
+                           'CurrentBuildParameters')
+
+        XML.SubElement(pippub, 'downstreamProjectNames').text = data['project']
 
 
 def email(parser, xml_parent, data):
@@ -1996,7 +2032,8 @@ def maven_deploy(parser, xml_parent, data):
     """
 
     p = XML.SubElement(xml_parent, 'hudson.maven.RedeployPublisher')
-    XML.SubElement(p, 'id').text = data['id']
+    if 'id' in data:
+        XML.SubElement(p, 'id').text = data['id']
     XML.SubElement(p, 'url').text = data['url']
     XML.SubElement(p, 'uniqueVersion').text = str(
         data.get('unique-version', True)).lower()
@@ -2942,6 +2979,20 @@ def git(parser, xml_parent, data):
             handle_entity_children(note['note'], xml_note, note_mappings)
 
 
+def github_notifier(parser, xml_parent, data):
+    """yaml: github-notifier
+    Set build status on Github commit.
+    Requires the Jenkins `Github Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/GitHub+Plugin>`_
+
+    Example:
+
+    .. literalinclude:: /../../tests/publishers/fixtures/github-notifier.yaml
+    """
+    XML.SubElement(xml_parent,
+                   'com.cloudbees.jenkins.GitHubCommitNotifier')
+
+
 def build_publisher(parser, xml_parent, data):
     """yaml: build-publisher
     This plugin allows records from one Jenkins to be published
@@ -3006,7 +3057,7 @@ def stash(parser, xml_parent, data):
 
     Example:
 
-    .. literalinclude:: ../../tests/publishers/fixtures/stash001.yaml
+    .. literalinclude:: /../../tests/publishers/fixtures/stash001.yaml
     """
 
     top = XML.SubElement(xml_parent,
@@ -3041,7 +3092,8 @@ def description_setter(parser, xml_parent, data):
 
     Example:
 
-    .. literalinclude:: ../../tests/publishers/fixtures/description-setter.yaml
+    .. literalinclude::
+       /../../tests/publishers/fixtures/description-setter.yaml
 
     """
 

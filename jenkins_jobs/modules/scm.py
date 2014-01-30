@@ -52,6 +52,7 @@ def git(self, xml_parent, data):
     <https://wiki.jenkins-ci.org/display/JENKINS/Git+Plugin>`_
 
     :arg str url: URL of the git repository
+    :arg str credentials-id: ID of credentials to use to connect (optional)
     :arg str refspec: refspec to fetch
     :arg str name: name to fetch
     :arg list(str) branches: list of branch specifiers to build
@@ -59,6 +60,7 @@ def git(self, xml_parent, data):
       when polling for changes. (if polling is enabled)
     :arg list(str) included-regions: list of file/folders to include
     :arg list(str) excluded-regions: list of file/folders to exclude
+    :arg str local-branch: Checkout/merge to local branch
     :arg dict merge:
         :merge:
             * **remote** (`string`) - name of repo that contains branch to
@@ -81,6 +83,7 @@ def git(self, xml_parent, data):
     :arg bool wipe-workspace: Wipe out workspace before build
     :arg str browser: what repository browser to use (default '(Auto)')
     :arg str browser-url: url for the repository browser
+    :arg str browser-version: version of the repository browser (GitLab)
     :arg str project-name: project name in Gitblit and ViewGit repobrowser
     :arg str choosing-strategy: Jenkins class for selecting what to build
     :arg str git-config-name: Configure name for Git clone
@@ -156,6 +159,8 @@ def git(self, xml_parent, data):
         refspec = '+refs/heads/*:refs/remotes/origin/*'
     XML.SubElement(huser, 'refspec').text = refspec
     XML.SubElement(huser, 'url').text = data['url']
+    if 'credentials-id' in data:
+        XML.SubElement(huser, 'credentialsId').text = data['credentials-id']
     xml_branches = XML.SubElement(scm, 'branches')
     branches = data.get('branches', ['**'])
     for branch in branches:
@@ -197,6 +202,10 @@ def git(self, xml_parent, data):
             xe.text = str(val).lower()
         else:
             xe.text = val
+
+    if 'local-branch' in data:
+        XML.SubElement(scm, 'localBranch').text = data['local-branch']
+
     browser = data.get('browser', 'auto')
     browserdict = {'githubweb': 'GithubWeb',
                    'fisheye': 'FisheyeGitRepositoryBrowser',
@@ -222,6 +231,9 @@ def git(self, xml_parent, data):
         if browser in ['gitblit', 'viewgit']:
             XML.SubElement(bc, 'projectName').text = str(
                 data.get('project-name', ''))
+        if browser == 'gitlab':
+            XML.SubElement(bc, 'version').text = str(
+                data.get('browser-version', '0.0'))
 
 
 def repo(self, xml_parent, data):
