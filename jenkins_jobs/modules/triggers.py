@@ -189,7 +189,7 @@ def gerrit(parser, xml_parent, data):
 
     You may select one or more gerrit events upon which to trigger.
     You must also supply at least one project and branch, optionally
-    more.  If you select the comment-added trigger, you should alse
+    more.  If you select the comment-added trigger, you should also
     indicate which approval category and value you want to trigger the
     job.
 
@@ -275,7 +275,7 @@ def gerrit(parser, xml_parent, data):
                                 ('gerrit-build-failed-verified-value',
                                  'gerritBuildFailedVerifiedValue'),
                                 ('gerrit-build-successful-codereview-value',
-                                 'gerritBuildSuccesfulCodereviewValue'),
+                                 'gerritBuildSuccessfulCodereviewValue'),
                                 ('gerrit-build-failed-codereview-value',
                                  'gerritBuildFaiedCodeReviewValue')]:
             if data.get(yamlkey) is not None:
@@ -452,6 +452,43 @@ def build_result(parser, xml_parent, data):
                                            'plugins.buildresulttrigger.model.'
                                            'CheckedResult')
             XML.SubElement(model_checked, 'checked').text = result_dict[result]
+
+
+def script(parser, xml_parent, data):
+    """yaml: script
+    Triggers the job using shell or batch script.
+    Requires the Jenkins `ScriptTrigger Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/ScriptTrigger+Plugin>`_
+
+    :arg str label: Restrict where the polling should run. (default '')
+    :arg str script: A shell or batch script. (default '')
+    :arg str cron: cron syntax of when to run (default '')
+    :arg bool enable-concurrent:  Enables triggering concurrent builds.
+                                  (default false)
+    :arg int exit-code:  If the exit code of the script execution returns this
+                         expected exit code, a build is scheduled. (default 0)
+
+    Example:
+
+    .. literalinclude:: /../../tests/triggers/fixtures/script.yaml
+    """
+    data = data if data else {}
+    st = XML.SubElement(
+        xml_parent,
+        'org.jenkinsci.plugins.scripttrigger.ScriptTrigger'
+    )
+    label = data.get('label')
+
+    XML.SubElement(st, 'script').text = str(data.get('script', ''))
+    XML.SubElement(st, 'scriptFilePath').text = str(
+        data.get('script-file-path', ''))
+    XML.SubElement(st, 'spec').text = str(data.get('cron', ''))
+    XML.SubElement(st, 'labelRestriction').text = str(bool(label)).lower()
+    if label:
+        XML.SubElement(st, 'triggerLabel').text = label
+    XML.SubElement(st, 'enableConcurrentBuild').text = str(
+        data.get('enable-concurrent', False)).lower()
+    XML.SubElement(st, 'exitCode').text = str(data.get('exit-code', 0))
 
 
 class Triggers(jenkins_jobs.modules.base.Base):

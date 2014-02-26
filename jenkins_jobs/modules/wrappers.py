@@ -36,6 +36,35 @@ import jenkins_jobs.modules.base
 from jenkins_jobs.modules.builders import create_builders
 
 
+def ci_skip(parser, xml_parent, data):
+    """yaml: ci-skip
+    Skip making a build for certain push.
+    Just add [ci skip] into your commit's message to let Jenkins know,
+    that you do not want to perform build for the next push.
+    Requires the Jenkins `Ci Skip Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Ci+Skip+Plugin>`_
+
+    Example:
+
+    .. literalinclude:: /../../tests/wrappers/fixtures/ci-skip001.yaml
+    """
+    rpobj = XML.SubElement(xml_parent, 'ruby-proxy-object')
+    robj = XML.SubElement(rpobj, 'ruby-object', attrib={
+        'pluginid': 'ci-skip',
+        'ruby-class': 'Jenkins::Tasks::BuildWrapperProxy'
+    })
+    pluginid = XML.SubElement(robj, 'pluginid', {
+        'pluginid': 'ci-skip', 'ruby-class': 'String'
+    })
+    pluginid.text = 'ci-skip'
+    obj = XML.SubElement(robj, 'object', {
+        'ruby-class': 'CiSkipWrapper', 'pluginid': 'ci-skip'
+    })
+    XML.SubElement(obj, 'ci__skip', {
+        'pluginid': 'ci-skip', 'ruby-class': 'NilClass'
+    })
+
+
 def timeout(parser, xml_parent, data):
     """yaml: timeout
     Abort the build if it runs too long.
@@ -320,7 +349,7 @@ def rbenv(parser, xml_parent, data):
     XML.SubElement(o,
                    'ignore__local__version',
                    {'ruby-class': ignore_local_class,
-                   'pluginid': 'rbenv'})
+                    'pluginid': 'rbenv'})
 
 
 def build_name(parser, xml_parent, data):
@@ -745,7 +774,7 @@ def sauce_ondemand(parser, xml_parent, data):
         XML.SubElement(info, 'isWebDriver').text = 'false'
         XML.SubElement(sauce, 'seleniumBrowsers',
                        {'reference': '../seleniumInformation/'
-                       'seleniumBrowsers'})
+                        'seleniumBrowsers'})
     if atype == 'webdriver':
         browsers = XML.SubElement(info, 'webDriverBrowsers')
         for platform in data['platforms']:
@@ -753,7 +782,7 @@ def sauce_ondemand(parser, xml_parent, data):
         XML.SubElement(info, 'isWebDriver').text = 'true'
         XML.SubElement(sauce, 'webDriverBrowsers',
                        {'reference': '../seleniumInformation/'
-                       'webDriverBrowsers'})
+                        'webDriverBrowsers'})
     XML.SubElement(sauce, 'launchSauceConnectOnSlave').text = str(data.get(
         'launch-sauce-connect-on-slave', False)).lower()
     protocol = data.get('https-protocol', '')
@@ -832,6 +861,66 @@ def pre_scm_buildstep(parser, xml_parent, data):
     for step in data:
         for edited_node in create_builders(parser, step):
             bs.append(edited_node)
+
+
+def logstash(parser, xml_parent, data):
+    """yaml: logstash build wrapper
+    Dump the Jenkins console output to Logstash
+    Requires the Jenkins `logstash plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Logstash+Plugin>`_
+
+    :arg use-redis: Boolean to use Redis. (default: true)
+    :arg redis: Redis config params
+
+        :Parameter: * **host** (`str`) Redis hostname\
+        (default 'localhost')
+        :Parameter: * **port** (`int`) Redis port number (default 6397)
+        :Parameter: * **database-number** (`int`)\
+        Redis database number (default 0)
+        :Parameter: * **database-password** (`str`)\
+        Redis database password (default '')
+        :Parameter: * **data-type** (`str`)\
+        Redis database type (default 'list')
+        :Parameter: * **key** (`str`) Redis key (default 'logstash')
+
+    Example:
+
+    .. literalinclude:: /../../tests/wrappers/fixtures/logstash001.yaml
+
+    """
+    logstash = XML.SubElement(xml_parent,
+                              'jenkins.plugins.logstash.'
+                              'LogstashBuildWrapper')
+    logstash.set('plugin', 'logstash@0.8.0')
+
+    redis_bool = XML.SubElement(logstash, 'useRedis')
+    redis_bool.text = str(data.get('use-redis', True)).lower()
+
+    if data.get('use-redis'):
+        redis_config = data.get('redis', {})
+        redis_sub_element = XML.SubElement(logstash, 'redis')
+
+        host_sub_element = XML.SubElement(redis_sub_element, 'host')
+        host_sub_element.text = str(
+            redis_config.get('host', 'localhost'))
+
+        port_sub_element = XML.SubElement(redis_sub_element, 'port')
+        port_sub_element.text = str(redis_config.get('port', '6379'))
+
+        database_numb_sub_element = XML.SubElement(redis_sub_element, 'numb')
+        database_numb_sub_element.text = \
+            str(redis_config.get('database-number', '0'))
+
+        database_pass_sub_element = XML.SubElement(redis_sub_element, 'pass')
+        database_pass_sub_element.text = \
+            str(redis_config.get('database-password', ''))
+
+        data_type_sub_element = XML.SubElement(redis_sub_element, 'dataType')
+        data_type_sub_element.text = \
+            str(redis_config.get('data-type', 'list'))
+
+        key_sub_element = XML.SubElement(redis_sub_element, 'key')
+        key_sub_element.text = str(redis_config.get('key', 'logstash'))
 
 
 class Wrappers(jenkins_jobs.modules.base.Base):

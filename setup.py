@@ -21,7 +21,6 @@ requires = setup.parse_requirements()
 test_requires = setup.parse_requirements(['tools/test-requires'])
 depend_links = setup.parse_dependency_links()
 
-
 setuptools.setup(
     name='jenkins-job-builder',
     version=version.canonical_version_string(always=True),
@@ -80,11 +79,15 @@ setuptools.setup(
             ('authenticated-build=jenkins_jobs.modules.properties:'
              'authenticated_build'),
             'authorization=jenkins_jobs.modules.properties:authorization',
+            ('builds-chain-fingerprinter=jenkins_jobs.modules.properties:'
+             'builds_chain_fingerprinter'),
             'batch-tasks=jenkins_jobs.modules.properties:batch_tasks',
             'build-blocker=jenkins_jobs.modules.properties:build_blocker',
             'extended-choice=jenkins_jobs.modules.properties:extended_choice',
             'github=jenkins_jobs.modules.properties:github',
+            'heavy-job=jenkins_jobs.modules.properties:heavy_job',
             'inject=jenkins_jobs.modules.properties:inject',
+            'least-load=jenkins_jobs.modules.properties:least_load',
             'ownership=jenkins_jobs.modules.properties:ownership',
             'priority-sorter=jenkins_jobs.modules.properties:priority_sorter',
             'promoted-build=jenkins_jobs.modules.properties:promoted_build',
@@ -124,8 +127,10 @@ setuptools.setup(
             'blame-upstream=jenkins_jobs.modules.publishers:blame_upstream',
             'build-publisher=jenkins_jobs.modules.publishers:build_publisher',
             'checkstyle=jenkins_jobs.modules.publishers:checkstyle',
+            'campfire=jenkins_jobs.modules.publishers:campfire',
             'cifs=jenkins_jobs.modules.publishers:cifs',
             'claim-build=jenkins_jobs.modules.publishers:claim_build',
+            'clone-workspace=jenkins_jobs.modules.publishers:clone_workspace',
             'cloverphp=jenkins_jobs.modules.publishers:cloverphp',
             'cobertura=jenkins_jobs.modules.publishers:cobertura',
             'copy-to-master=jenkins_jobs.modules.publishers:copy_to_master',
@@ -152,6 +157,7 @@ setuptools.setup(
             'junit=jenkins_jobs.modules.publishers:junit',
             'logparser=jenkins_jobs.modules.publishers:logparser',
             'maven-deploy=jenkins_jobs.modules.publishers:maven_deploy',
+            'sitemonitor=jenkins_jobs.modules.publishers:sitemonitor',
             'performance=jenkins_jobs.modules.publishers:performance',
             'pipeline=jenkins_jobs.modules.publishers:pipeline',
             'plot=jenkins_jobs.modules.publishers:plot',
@@ -163,6 +169,7 @@ setuptools.setup(
             'ssh=jenkins_jobs.modules.publishers:ssh',
             'stash=jenkins_jobs.modules.publishers:stash',
             'tap=jenkins_jobs.modules.publishers:tap',
+            'testng=jenkins_jobs.modules.publishers:testng',
             'text-finder=jenkins_jobs.modules.publishers:text_finder',
             'trigger=jenkins_jobs.modules.publishers:trigger',
             ('trigger-parameterized-builds='
@@ -188,17 +195,20 @@ setuptools.setup(
              'github_pull_request'),
             'pollscm=jenkins_jobs.modules.triggers:pollscm',
             'timed=jenkins_jobs.modules.triggers:timed',
+            'script=jenkins_jobs.modules.triggers:script',
         ],
         'jenkins_jobs.wrappers': [
             'ansicolor=jenkins_jobs.modules.wrappers:ansicolor',
             'build-name=jenkins_jobs.modules.wrappers:build_name',
             'build-user-vars=jenkins_jobs.modules.wrappers:build_user_vars',
+            'ci-skip=jenkins_jobs.modules.wrappers:ci_skip',
             'copy-to-slave=jenkins_jobs.modules.wrappers:copy_to_slave',
             'env-file=jenkins_jobs.modules.wrappers:env_file',
             'inject=jenkins_jobs.modules.wrappers:inject',
             'inject-passwords=jenkins_jobs.modules.wrappers:inject_passwords',
             'jclouds=jenkins_jobs.modules.wrappers:jclouds',
             'locks=jenkins_jobs.modules.wrappers:locks',
+            'logstash=jenkins_jobs.modules.wrappers:logstash',
             'mask-passwords=jenkins_jobs.modules.wrappers:mask_passwords',
             'pathignore=jenkins_jobs.modules.wrappers:pathignore',
             'port-allocator=jenkins_jobs.modules.wrappers:port_allocator',

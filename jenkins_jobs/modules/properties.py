@@ -37,6 +37,31 @@ import jenkins_jobs.modules.base
 from jenkins_jobs.errors import JenkinsJobsException
 
 
+def builds_chain_fingerprinter(parser, xml_parent, data):
+    """yaml: builds-chain-fingerprinter
+    Builds chain fingerprinter.
+    Requires the Jenkins `Builds chain fingerprinter Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Builds+chain+fingerprinter>`_
+
+    :arg bool per-builds-chain: enable builds hierarchy fingerprinting
+        (default False)
+    :arg bool per-job-chain: enable jobs hierarchy fingerprinting
+        (default False)
+
+    Example:
+
+    .. literalinclude:: /../../tests/properties/fixtures/fingerprinter.yaml
+    """
+    fingerprinter = XML.SubElement(xml_parent,
+                                   'org.jenkinsci.plugins.'
+                                   'buildschainfingerprinter.'
+                                   'AutomaticFingerprintJobProperty')
+    XML.SubElement(fingerprinter, 'isPerBuildsChainEnabled').text = str(
+        data.get('per-builds-chain', False)).lower()
+    XML.SubElement(fingerprinter, 'isPerJobsChainEnabled').text = str(
+        data.get('per-job-chain', False)).lower()
+
+
 def ownership(parser, xml_parent, data):
     """yaml: ownership
     Plugin provides explicit ownership for jobs and slave nodes.
@@ -118,6 +143,26 @@ def github(parser, xml_parent, data):
                             'GithubProjectProperty')
     github_url = XML.SubElement(github, 'projectUrl')
     github_url.text = data['url']
+
+
+def least_load(parser, xml_parent, data):
+    """yaml: least-load
+    Enables the Least Load Plugin.
+    Requires the Jenkins `Least Load Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Least+Load+Plugin>`_
+
+    :arg bool disabled: whether or not leastload is disabled (default True)
+
+    Example::
+
+    .. literalinclude:: /../../tests/properties/fixtures/least_load002.yaml
+    """
+    least = XML.SubElement(xml_parent,
+                           'org.bstick12.jenkinsci.plugins.leastload.'
+                           'LeastLoadDisabledProperty')
+
+    XML.SubElement(least, 'leastLoadDisabled').text = str(
+        data.get('disabled', True)).lower()
 
 
 def throttle(parser, xml_parent, data):
@@ -413,7 +458,7 @@ def build_blocker(parser, xml_parent, data):
               use-build-blocker: true
               blocking-jobs:
                 - ".*-deploy"
-                - "^maintainance.*"
+                - "^maintenance.*"
     """
     blocker = XML.SubElement(xml_parent,
                              'hudson.plugins.'
@@ -462,6 +507,30 @@ def batch_tasks(parser, xml_parent, data):
                                     'hudson.plugins.batch__task.BatchTask')
         XML.SubElement(batch_task, 'name').text = task['name']
         XML.SubElement(batch_task, 'script').text = task['script']
+
+
+def heavy_job(parser, xml_parent, data):
+    """yaml: heavy-job
+    This plugin allows you to define "weight" on each job,
+    and making each job consume that many executors
+
+    Requires the Jenkins `Heavy Job Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Heavy+Job+Plugin>`_
+
+    :arg int weight: Specify the total number of executors
+        that this job should occupy (defaults to 1)
+
+
+    Example:
+
+    .. literalinclude:: /../../tests/properties/fixtures/heavy-job.yaml
+
+    """
+    heavyjob = XML.SubElement(xml_parent,
+                              'hudson.plugins.'
+                              'heavy__job.HeavyJobProperty')
+    XML.SubElement(heavyjob, 'weight').text = str(
+        data.get('weight', 1))
 
 
 class Properties(jenkins_jobs.modules.base.Base):
