@@ -33,35 +33,35 @@ def main():
     subparser = parser.add_subparsers(help='update, test or delete job',
                                       dest='command')
     parser_update = subparser.add_parser('update')
-    parser_update.add_argument('path', help='Path to YAML file or directory')
+    parser_update.add_argument('path', help='path to YAML file or directory')
     parser_update.add_argument('names', help='name(s) of job(s)', nargs='*')
-    parser_update.add_argument('--delete-old', help='Delete obsolete jobs',
+    parser_update.add_argument('--delete-old', help='delete obsolete jobs',
                                action='store_true',
                                dest='delete_old', default=False,)
     parser_test = subparser.add_parser('test')
-    parser_test.add_argument('path', help='Path to YAML file or directory')
+    parser_test.add_argument('path', help='path to YAML file or directory')
     parser_test.add_argument('-o', dest='output_dir', required=True,
-                             help='Path to output XML')
+                             help='path to output XML')
     parser_test.add_argument('name', help='name(s) of job(s)', nargs='*')
     parser_delete = subparser.add_parser('delete')
     parser_delete.add_argument('name', help='name of job', nargs='+')
     parser_delete.add_argument('-p', '--path', default=None,
-                               help='Path to YAML file or directory')
+                               help='path to YAML file or directory')
     subparser.add_parser('delete-all',
-                         help='Delete *ALL* jobs from Jenkins server, '
+                         help='delete *ALL* jobs from Jenkins server, '
                          'including those not managed by Jenkins Job '
                          'Builder.')
-    parser.add_argument('--conf', dest='conf', help='Configuration file')
+    parser.add_argument('--conf', dest='conf', help='configuration file')
     parser.add_argument('-l', '--log_level', dest='log_level', default='info',
-                        help="Log level (default: %(default)s)")
+                        help="log level (default: %(default)s)")
     parser.add_argument(
         '--ignore-cache', action='store_true',
         dest='ignore_cache', default=False,
-        help='Ignore the cache and update the jobs anyhow (that will only '
+        help='ignore the cache and update the jobs anyhow (that will only '
              'flush the specified jobs cache)')
     parser.add_argument(
         '--flush-cache', action='store_true', dest='flush_cache',
-        default=False, help='Flush all the cache entries before updating')
+        default=False, help='flush all the cache entries before updating')
     options = parser.parse_args()
 
     options.log_level = getattr(logging, options.log_level.upper(),
@@ -94,7 +94,8 @@ def main():
         logger.debug("Not reading config for test output generation")
     else:
         raise jenkins_jobs.errors.JenkinsJobsException(
-            "A valid configuration file is required when not run as a test")
+            "A valid configuration file is required when not run as a test"
+            "\n{0} is not a valid .ini file".format(conf))
 
     logger.debug("Config: {0}".format(config))
 
@@ -105,9 +106,21 @@ def main():
         ignore_cache = options.ignore_cache
     elif config.has_option('jenkins', 'ignore_cache'):
         ignore_cache = config.get('jenkins', 'ignore_cache')
+
+    # workaround for python 2.6 interpolation error
+    # https://bugs.launchpad.net/openstack-ci/+bug/1259631
+    try:
+        user = config.get('jenkins', 'user')
+    except (TypeError, ConfigParser.NoOptionError):
+        user = None
+    try:
+        password = config.get('jenkins', 'password')
+    except (TypeError, ConfigParser.NoOptionError):
+        password = None
+
     builder = jenkins_jobs.builder.Builder(config.get('jenkins', 'url'),
-                                           config.get('jenkins', 'user'),
-                                           config.get('jenkins', 'password'),
+                                           user,
+                                           password,
                                            config,
                                            ignore_cache=ignore_cache,
                                            flush_cache=options.flush_cache)

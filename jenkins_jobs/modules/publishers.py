@@ -96,7 +96,7 @@ def campfire(parser, xml_parent, data):
     """yaml: campfire
     Send build notifications to Campfire rooms.
     Requires the Jenkins `Campfire Plugin.
-    <https://wiki.jenkins-ci.org/display/JENKINS/Campfire+Plugin
+    <https://wiki.jenkins-ci.org/display/JENKINS/Campfire+Plugin>`_
 
     Campfire notifications global default values must be configured for
     the Jenkins instance. Default values will be used if no specific
@@ -348,11 +348,11 @@ def clone_workspace(parser, xml_parent, data):
     else:
         XML.SubElement(cloneworkspace, 'archiveMethod').text = archive_method
 
-    XML.SubElement(
-        cloneworkspace,
-        'overrideDefaultExcludes').text = str(data.get(
-            'override-default-excludes',
-            False)).lower()
+    override_default_excludes_str = str(
+        data.get('override-default-excludes', False)).lower()
+    override_default_excludes_elem = XML.SubElement(
+        cloneworkspace, 'overrideDefaultExcludes')
+    override_default_excludes_elem.text = override_default_excludes_str
 
 
 def cloverphp(parser, xml_parent, data):
@@ -1060,19 +1060,14 @@ def checkstyle(parser, xml_parent, data):
     :arg str defaultEncoding: encoding for parsing or showing files
      (empty will use platform default)
 
-    Example::
+    Example:
 
-      publishers:
-        - checkstyle:
-            pattern: '**/checkstyle-result.xml'
-            healthy: 0
-            unHealthy: 100
-            healthThreshold: 'high'
-            thresholds:
-                unstable:
-                    totalHigh: 10
-                failed:
-                    totalHigh: 1
+    .. literalinclude::  /../../tests/publishers/fixtures/checkstyle001.yaml
+
+    Full example:
+
+    .. literalinclude::  /../../tests/publishers/fixtures/checkstyle002.yaml
+
     """
     checkstyle = XML.SubElement(xml_parent,
                                 'hudson.plugins.checkstyle.'
@@ -1367,10 +1362,20 @@ def base_email_ext(parser, xml_parent, data, ttype):
     XML.SubElement(email, 'recipientList').text = ''
     XML.SubElement(email, 'subject').text = '$PROJECT_DEFAULT_SUBJECT'
     XML.SubElement(email, 'body').text = '$PROJECT_DEFAULT_CONTENT'
-    XML.SubElement(email, 'sendToDevelopers').text = 'false'
-    XML.SubElement(email, 'sendToRequester').text = 'false'
-    XML.SubElement(email, 'includeCulprits').text = 'false'
-    XML.SubElement(email, 'sendToRecipientList').text = 'true'
+    if 'send-to' in data:
+        XML.SubElement(email, 'sendToDevelopers').text = \
+            str('developers' in data['send-to']).lower()
+        XML.SubElement(email, 'sendToRequester').text = \
+            str('requester' in data['send-to']).lower()
+        XML.SubElement(email, 'includeCulprits').text = \
+            str('culprits' in data['send-to']).lower()
+        XML.SubElement(email, 'sendToRecipientList').text = \
+            str('recipients' in data['send-to']).lower()
+    else:
+        XML.SubElement(email, 'sendToRequester').text = 'false'
+        XML.SubElement(email, 'sendToDevelopers').text = 'false'
+        XML.SubElement(email, 'includeCulprits').text = 'false'
+        XML.SubElement(email, 'sendToRecipientList').text = 'true'
 
 
 def email_ext(parser, xml_parent, data):
@@ -1382,12 +1387,17 @@ def email_ext(parser, xml_parent, data):
     :arg str recipients: Comma separated list of emails
     :arg str reply-to: Comma separated list of emails that should be in
         the Reply-To header for this project (default is $DEFAULT_RECIPIENTS)
+    :arg str content-type: The content type of the emails sent. If not set, the
+        Jenkins plugin uses the value set on the main configuration page.
+        Possible values: 'html', 'text' or 'default' (default 'default')
     :arg str subject: Subject for the email, can include variables like
         ${BUILD_NUMBER} or even groovy or javascript code
     :arg str body: Content for the body of the email, can include variables
         like ${BUILD_NUMBER}, but the real magic is using groovy or
         javascript to hook into the Jenkins API itself
     :arg bool attach-build-log: Include build log in the email (default false)
+    :arg str attachments: pattern of files to include as attachment (optional)
+    :arg bool always: Send an email for every result (default false)
     :arg bool unstable: Send an email for an unstable result (default false)
     :arg bool first-failure: Send an email for just the first failure
         (default false)
@@ -1410,30 +1420,19 @@ def email_ext(parser, xml_parent, data):
             * **both**
             * **only-parent**
             * **only-configurations**
+    :arg list send-to: list of recipients from the predefined groups
 
-    Example::
+        :send-to values:
+            * **developers** (disabled by default)
+            * **requester** (disabled by default)
+            * **culprits** (disabled by default)
+            * **recipients** (enabled by default)
 
-      publishers:
-        - email-ext:
-            recipients: foo@example.com, bar@example.com
-            reply-to: foo@example.com
-            subject: Subject for Build ${BUILD_NUMBER}
-            body: The build has finished
-            attach-build-log: false
-            unstable: true
-            first-failure: true
-            not-built: true
-            aborted: true
-            regression: true
-            failure: true
-            improvement: true
-            still-failing: true
-            success: true
-            fixed: true
-            still-unstable: true
-            pre-build: true
-            matrix-trigger: only-configurations
+    Example:
+
+    .. literalinclude:: /../../tests/publishers/fixtures/email-ext001.yaml
     """
+
     emailext = XML.SubElement(xml_parent,
                               'hudson.plugins.emailext.ExtendedEmailPublisher')
     if 'recipients' in data:
@@ -1441,6 +1440,8 @@ def email_ext(parser, xml_parent, data):
     else:
         XML.SubElement(emailext, 'recipientList').text = '$DEFAULT_RECIPIENTS'
     ctrigger = XML.SubElement(emailext, 'configuredTriggers')
+    if data.get('always', False):
+        base_email_ext(parser, ctrigger, data, 'AlwaysTrigger')
     if data.get('unstable', False):
         base_email_ext(parser, ctrigger, data, 'UnstableTrigger')
     if data.get('first-failure', False):
@@ -1465,12 +1466,24 @@ def email_ext(parser, xml_parent, data):
         base_email_ext(parser, ctrigger, data, 'StillUnstableTrigger')
     if data.get('pre-build', False):
         base_email_ext(parser, ctrigger, data, 'PreBuildTrigger')
-    XML.SubElement(emailext, 'contentType').text = 'default'
+
+    content_type_mime = {
+        'text': 'text/plain',
+        'html': 'text/html',
+        'default': 'default',
+    }
+    ctype = data.get('content-type', 'default')
+    if ctype not in content_type_mime:
+        raise JenkinsJobsException('email-ext content type must be one of: %s'
+                                   % ', '.join(content_type_mime.keys()))
+    XML.SubElement(emailext, 'contentType').text = content_type_mime[ctype]
+
     XML.SubElement(emailext, 'defaultSubject').text = data.get(
         'subject', '$DEFAULT_SUBJECT')
     XML.SubElement(emailext, 'defaultContent').text = data.get(
         'body', '$DEFAULT_CONTENT')
-    XML.SubElement(emailext, 'attachmentsPattern').text = ''
+    XML.SubElement(emailext, 'attachmentsPattern').text = data.get(
+        'attachments', '')
     XML.SubElement(emailext, 'presendScript').text = ''
     XML.SubElement(emailext, 'attachBuildLog').text = \
         str(data.get('attach-build-log', False)).lower()
@@ -1798,6 +1811,21 @@ def cifs(parser, xml_parent, data):
                       publisher_tag,
                       transfer_tag,
                       plugin_reference_tag)
+
+
+def cigame(parser, xml_parent, data):
+    """yaml: cigame
+    This plugin introduces a game where users get points
+    for improving the builds.
+    Requires the Jenkins `The Continuous Integration Game plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/
+    The+Continuous+Integration+Game+plugin>`_
+
+    Example:
+
+    .. literalinclude:: /../../tests/publishers/fixtures/cigame.yaml
+    """
+    XML.SubElement(xml_parent, 'hudson.plugins.cigame.GamePublisher')
 
 
 def sonar(parser, xml_parent, data):
@@ -2739,25 +2767,9 @@ def ircbot(parser, xml_parent, data):
             * **only-configurations** (default)
             * **only-parent**
 
-    Example::
+    Example:
 
-      publishers:
-        - ircbot:
-            strategy: all
-            notify-start: false
-            notify-committers: false
-            notify-culprits: false
-            notify-upstream: false
-            notify-fixers: false
-            message-type: summary-scm
-            channels:
-                - name: '#jenkins-channel1'
-                  password: secrete
-                  notify-only: false
-                - name: '#jenkins-channel2'
-                  notify-only: true
-            matrix-notifier: only-configurations
-
+    .. literalinclude:: /../../tests/publishers/fixtures/ircbot001.yaml
     """
     top = XML.SubElement(xml_parent, 'hudson.plugins.ircbot.IrcPublisher')
     message_dict = {'summary-scm': 'DefaultBuildToChatNotifier',
@@ -2804,7 +2816,7 @@ def ircbot(parser, xml_parent, data):
     matrix_dict = {'all': 'ALL',
                    'only-configurations': 'ONLY_CONFIGURATIONS',
                    'only-parent': 'ONLY_PARENT'}
-    matrix = data.get('matrix-notifier', 'only_configurations')
+    matrix = data.get('matrix-notifier', 'only-configurations')
     if matrix not in matrix_dict:
         raise JenkinsJobsException("matrix-notifier entered is not valid, "
                                    "must be one of: %s" %
@@ -3275,10 +3287,9 @@ def testng(parser, xml_parent, data):
     :arg bool escape-exception-msg: escapes the test method's exception
       messages. (Default True)
 
-    Example::
+    Example:
 
-    .. literalinclude::
-       /../../tests/publishers/fixtures/testng001.yaml
+    .. literalinclude:: /../../tests/publishers/fixtures/testng001.yaml
 
     """
 
@@ -3290,6 +3301,119 @@ def testng(parser, xml_parent, data):
         'escape-test-description', True))
     XML.SubElement(reporter, 'escapeExceptionMsg').text = str(data.get(
         'escape-exception-msg', True))
+
+
+def artifact_deployer(parser, xml_parent, data):
+    """yaml: artifact-deployer
+    This plugin makes it possible to copy artifacts to remote locations.
+
+    Requires the Jenkins `ArtifactDeployer Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/ArtifactDeployer+Plugin>`_
+
+    :arg list entries:
+        :entries:
+            * **files** (`str`) - files to deploy
+            * **basedir** (`str`) - the dir from files are deployed
+            * **excludes** (`str`) - the mask to exclude files
+            * **remote** (`str`) - a remote output directory
+            * **flatten** (`bool`) - ignore the source directory structure
+              (Default: False)
+            * **delete-remote** (`bool`) - clean-up remote directory
+              before deployment (Default: False)
+            * **delete-remote-artifacts** (`bool`) - delete remote artifacts
+              when the build is deleted (Default: False)
+            * **fail-no-files** (`bool`) - fail build if there are no files
+              (Default: False)
+            * **groovy-script** (`str`) - execute a Groovy script
+              before a build is deleted
+
+    :arg bool deploy-if-fail: Deploy if the build is failed (Default: False)
+
+    Example:
+
+    .. literalinclude:: /../../tests/publishers/fixtures/artifact-dep.yaml
+
+    """
+
+    deployer = XML.SubElement(xml_parent,
+                              'org.jenkinsci.plugins.artifactdeployer.'
+                              'ArtifactDeployerPublisher')
+    if data is None or 'entries' not in data:
+        raise Exception('entries field is missing')
+    elif data.get('entries', None) is None:
+        entries = XML.SubElement(deployer, 'entries', {'class': 'empty-list'})
+    else:
+        entries = XML.SubElement(deployer, 'entries')
+        for entry in data.get('entries'):
+            deployer_entry = XML.SubElement(
+                entries,
+                'org.jenkinsci.plugins.artifactdeployer.ArtifactDeployerEntry')
+            XML.SubElement(deployer_entry, 'includes').text = \
+                entry.get('files')
+            XML.SubElement(deployer_entry, 'basedir').text = \
+                entry.get('basedir')
+            XML.SubElement(deployer_entry, 'excludes').text = \
+                entry.get('excludes')
+            XML.SubElement(deployer_entry, 'remote').text = entry.get('remote')
+            XML.SubElement(deployer_entry, 'flatten').text = \
+                str(entry.get('flatten', False)).lower()
+            XML.SubElement(deployer_entry, 'deleteRemote').text = \
+                str(entry.get('delete-remote', False)).lower()
+            XML.SubElement(deployer_entry, 'deleteRemoteArtifacts').text = \
+                str(entry.get('delete-remote-artifacts', False)).lower()
+            XML.SubElement(deployer_entry, 'failNoFilesDeploy').text = \
+                str(entry.get('fail-no-files', False)).lower()
+            XML.SubElement(deployer_entry, 'groovyExpression').text = \
+                entry.get('groovy-script')
+    deploy_if_fail = str(data.get('deploy-if-fail', False)).lower()
+    XML.SubElement(deployer, 'deployEvenBuildFail').text = deploy_if_fail
+
+
+def ruby_metrics(parser, xml_parent, data):
+    """yaml: ruby-metrics
+    Rcov plugin parses rcov html report files and
+    shows it in Jenkins with a trend graph.
+
+    Requires the Jenkins `Ruby metrics plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Ruby+metrics+plugin>`_
+
+    :arg str report-dir: Relative path to the coverage report directory
+    :arg dict targets:
+
+           :targets: (total-coverage, code-coverage)
+
+                * **healthy** (`int`): Healthy threshold
+                * **unhealthy** (`int`): Unhealthy threshold
+                * **unstable** (`int`): Unstable threshold
+
+    Example:
+
+    .. literalinclude:: /../../tests/publishers/fixtures/ruby-metrics.yaml
+
+    """
+
+    metrics = XML.SubElement(
+        xml_parent,
+        'hudson.plugins.rubyMetrics.rcov.RcovPublisher')
+    report_dir = data.get('report-dir', '')
+    XML.SubElement(metrics, 'reportDir').text = report_dir
+    targets = XML.SubElement(metrics, 'targets')
+    if 'target' in data:
+        for t in data['target']:
+            if not ('code-coverage' in t or 'total-coverage' in t):
+                raise JenkinsJobsException('Unrecognized target name')
+            el = XML.SubElement(
+                targets,
+                'hudson.plugins.rubyMetrics.rcov.model.MetricTarget')
+            if 'total-coverage' in t:
+                XML.SubElement(el, 'metric').text = 'TOTAL_COVERAGE'
+            else:
+                XML.SubElement(el, 'metric').text = 'CODE_COVERAGE'
+            for threshold_name, threshold_value in t.values()[0].items():
+                elname = threshold_name.lower()
+                XML.SubElement(el, elname).text = str(threshold_value)
+    else:
+        raise JenkinsJobsException('Coverage metric targets must be set')
 
 
 class Publishers(jenkins_jobs.modules.base.Base):

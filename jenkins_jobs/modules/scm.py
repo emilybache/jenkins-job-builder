@@ -79,14 +79,17 @@ def git(self, xml_parent, data):
     :arg str git-config-email: Configure email for Git clone
 
     :browser values:
-        :githubweb:
-        :fisheye:
+        :auto:
         :bitbucketweb:
+        :cgit:
+        :fisheye:
         :gitblit:
+        :githubweb:
         :gitlab:
         :gitoriousweb:
         :gitweb:
         :redmineweb:
+        :stash:
         :viewgit:
 
     :choosing-strategy values:
@@ -189,22 +192,23 @@ def git(self, xml_parent, data):
         XML.SubElement(scm, 'localBranch').text = data['local-branch']
 
     browser = data.get('browser', 'auto')
-    browserdict = {'githubweb': 'GithubWeb',
-                   'fisheye': 'FisheyeGitRepositoryBrowser',
+    browserdict = {'auto': 'auto',
                    'bitbucketweb': 'BitbucketWeb',
                    'cgit': 'CGit',
+                   'fisheye': 'FisheyeGitRepositoryBrowser',
                    'gitblit': 'GitBlitRepositoryBrowser',
+                   'githubweb': 'GithubWeb',
                    'gitlab': 'GitLab',
                    'gitoriousweb': 'GitoriousWeb',
                    'gitweb': 'GitWeb',
                    'redmineweb': 'RedmineWeb',
-                   'viewgit': 'ViewGitWeb',
-                   'auto': 'auto'}
+                   'stash': 'Stash',
+                   'viewgit': 'ViewGitWeb'}
     if browser not in browserdict:
+        valid = sorted(browserdict.keys())
         raise JenkinsJobsException("Browser entered is not valid must be one "
-                                   "of: githubweb, fisheye, bitbucketweb, "
-                                   "cgit, gitblit, gitlab, gitoriousweb, "
-                                   "gitweb, redmineweb, viewgit, or auto")
+                                   "of: %s or %s." % (", ".join(valid[:-1]),
+                                                      valid[-1]))
     if browser != 'auto':
         bc = XML.SubElement(scm, 'browser', {'class':
                             'hudson.plugins.git.browser.' +
@@ -468,6 +472,44 @@ def tfs(self, xml_parent, data):
                                                   'plugins.tfs.browsers.'
                                                   'TeamSystemWebAccess'
                                                   'Browser'})
+
+
+def workspace(self, xml_parent, data):
+    """yaml: workspace
+    Specifies the cloned workspace for this job to use as a SCM source.
+    Requires the Jenkins `Clone Workspace SCM Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Clone+Workspace+SCM+Plugin>`_
+
+    The job the workspace is cloned from must be configured with an
+    clone-workspace publisher
+
+    :arg str parent-job: The name of the parent job to clone the
+        workspace from.
+    :arg str criteria: Set the criteria to determine what build of the parent
+        project to use. Can be one of 'Any', 'Not Failed' or 'Successful'.
+        (default: Any)
+
+
+    Example:
+
+    .. literalinclude:: /../../tests/scm/fixtures/workspace001.yaml
+    """
+
+    workspace = XML.SubElement(xml_parent, 'scm', {'class': 'hudson.plugins.'
+                               'cloneworkspace.CloneWorkspaceSCM'})
+    XML.SubElement(workspace, 'parentJobName').text = str(
+        data.get('parent-job', ''))
+
+    criteria_list = ['Any', 'Not Failed', 'Successful']
+
+    criteria = data.get('criteria', 'Any').title()
+
+    if 'criteria' in data and criteria not in criteria_list:
+        raise JenkinsJobsException(
+            'clone-workspace criteria must be one of: '
+            + ', '.join(criteria_list))
+    else:
+        XML.SubElement(workspace, 'criteria').text = criteria
 
 
 class SCM(jenkins_jobs.modules.base.Base):
