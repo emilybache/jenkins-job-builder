@@ -18,6 +18,7 @@
 # under the License.
 
 import codecs
+import logging
 import os
 import re
 import doctest
@@ -47,9 +48,15 @@ def get_scenarios(fixtures_path):
             raise Exception(
                 "No XML file named '%s' to match "
                 "YAML file '%s'" % (xml_candidate, yaml_filename))
+        conf_candidate = re.sub(r'\.yaml$', '.conf', yaml_filename)
+        # If present, add the configuration file
+        if conf_candidate not in files:
+            conf_candidate = None
 
         scenarios.append((yaml_filename, {
-            'yaml_filename': yaml_filename, 'xml_filename': xml_candidate
+            'yaml_filename': yaml_filename,
+            'xml_filename': xml_candidate,
+            'conf_filename': conf_candidate,
         }))
 
     return scenarios
@@ -62,6 +69,8 @@ class BaseTestCase(object):
     # TestCase settings:
     maxDiff = None      # always dump text difference
     longMessage = True  # keep normal error message when providing our
+
+    logging.basicConfig()
 
     def __read_content(self):
         # Read XML content, assuming it is unicode encoded

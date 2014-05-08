@@ -32,6 +32,7 @@ Example::
 
 import xml.etree.ElementTree as XML
 import jenkins_jobs.modules.base
+import logging
 import re
 
 
@@ -152,8 +153,18 @@ def gerrit(parser, xml_parent, data):
                   ''REG_EXP''
                 * **project-pattern** (`str`) -- Project name pattern to match
                 * **branch-compare-type** (`str`) -- ''PLAIN'', ''ANT'' or
-                  ''REG_EXP''
+                  ''REG_EXP'' (not used if `branches` list is specified)
                 * **branch-pattern** (`str`) -- Branch name pattern to match
+                   (not used if `branches` list is specified)
+                * **branches** (`list`) -- List of branches to match
+                  (optional)
+
+                  :Branch: * **branch-compare-type** (`str`) -- ''PLAIN'',
+                             ''ANT'' or ''REG_EXP'' (optional, defaults to
+                             ''PLAIN'')
+                           * **branch-pattern** (`str`) -- Branch name pattern
+                             to match
+
                 * **file-paths** (`list`) -- List of file paths to match
                   (optional)
 
@@ -186,6 +197,9 @@ def gerrit(parser, xml_parent, data):
         trigger configuration will be fetched from there on a regular interval
     :arg str custom-url: Custom URL for a message sent to Gerrit. Build
         details URL will be used if empty. (default '')
+    :arg str server-name: Name of the server to trigger on, or ''__ANY__'' to
+        trigger on any configured Gerrit server (default '__ANY__').  Requires
+        Gerrit Trigger Plugin version >= 2.11.0
 
     You may select one or more Gerrit events upon which to trigger.
     You must also supply at least one project and branch, optionally
@@ -197,32 +211,12 @@ def gerrit(parser, xml_parent, data):
     configure Gerrit Trigger Plugin, instead of hyphenated-keys.  While still
     supported, camedCase keys are deprecated and should not be used.
 
-    Example::
+    Example:
 
-      triggers:
-        - gerrit:
-            trigger-on-comment-added-event: true
-            trigger-approval-category: 'APRV'
-            trigger-approval-value: 1
-            projects:
-              - project-compare-type: 'PLAIN'
-                project-pattern: 'test-project'
-                branch-compare-type: 'ANT'
-                branch-pattern: '**'
-                file-paths:
-                    - compare-type: ANT
-                      pattern: subdirectory/**
-            skip-vote:
-                successful: true
-                failed: true
-                unstable: true
-                notbuilt: true
-            silent: false
-            escape-quotes: false
-            no-name-and-email: false
-            dynamic-trigger-enabled: true
-            dynamic-trigger-url: http://myhost/mytrigger
+    .. literalinclude:: /../../tests/triggers/fixtures/gerrit004.yaml
     """
+
+    logger = logging.getLogger("%s:gerrit" % __name__)
 
     gerrit_handle_legacy_configuration(data)
 
@@ -239,12 +233,32 @@ def gerrit(parser, xml_parent, data):
         XML.SubElement(gproj, 'compareType').text = \
             project['project-compare-type']
         XML.SubElement(gproj, 'pattern').text = project['project-pattern']
+
         branches = XML.SubElement(gproj, 'branches')
-        gbranch = XML.SubElement(branches, 'com.sonyericsson.hudson.plugins.'
-                                 'gerrit.trigger.hudsontrigger.data.Branch')
-        XML.SubElement(gbranch, 'compareType').text = \
-            project['branch-compare-type']
-        XML.SubElement(gbranch, 'pattern').text = project['branch-pattern']
+        project_branches = project.get('branches', [])
+
+        if 'branch-compare-type' in project and 'branch-pattern' in project:
+            warning = 'branch-compare-type and branch-pattern at project ' \
+                      'level are deprecated and support will be removed ' \
+                      'in a later version of Jenkins Job Builder; '
+            if project_branches:
+                warning += 'discarding values and using values from ' \
+                           'branches section'
+            else:
+                warning += 'please use branches section instead'
+            logger.warn(warning)
+        if not project_branches:
+            project_branches = [
+                {'branch-compare-type': project['branch-compare-type'],
+                 'branch-pattern': project['branch-pattern']}]
+        for branch in project_branches:
+            gbranch = XML.SubElement(
+                branches, 'com.sonyericsson.hudson.plugins.'
+                'gerrit.trigger.hudsontrigger.data.Branch')
+            XML.SubElement(gbranch, 'compareType').text = \
+                branch['branch-compare-type']
+            XML.SubElement(gbranch, 'pattern').text = branch['branch-pattern']
+
         project_file_paths = project.get('file-paths', [])
         if project_file_paths:
             fps_tag = XML.SubElement(gproj, 'filePaths')
@@ -291,6 +305,8 @@ def gerrit(parser, xml_parent, data):
     XML.SubElement(gtrig, 'buildUnstableMessage').text = str(
         data.get('unstable-message', ''))
     XML.SubElement(gtrig, 'customUrl').text = str(data.get('custom-url', ''))
+    XML.SubElement(gtrig, 'serverName').text = str(
+        data.get('server-name', '__ANY__'))
 
 
 def pollscm(parser, xml_parent, data):

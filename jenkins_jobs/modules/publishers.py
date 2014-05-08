@@ -1,5 +1,7 @@
 # Copyright 2012 Hewlett-Packard Development Company, L.P.
 # Copyright 2012 Varnish Software AS
+# Copyright 2013-2014 Antoine "hashar" Musso
+# Copyright 2013-2014 Wikimedia Foundation Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1073,18 +1075,10 @@ def checkstyle(parser, xml_parent, data):
                                 'hudson.plugins.checkstyle.'
                                 'CheckStylePublisher')
 
-    dval = data.get('healthy', None)
-    if dval:
-        XML.SubElement(checkstyle, 'healthy').text = str(dval)
-    else:
-        XML.SubElement(checkstyle, 'healthy')
-
-    dval = data.get('unHealthy', None)
-    if dval:
-        XML.SubElement(checkstyle, 'unHealthy').text = str(dval)
-    else:
-        XML.SubElement(checkstyle, 'unHealthy')
-
+    XML.SubElement(checkstyle, 'healthy').text = str(
+        data.get('healthy', ''))
+    XML.SubElement(checkstyle, 'unHealthy').text = str(
+        data.get('unHealthy', ''))
     XML.SubElement(checkstyle, 'thresholdLimit').text = \
         data.get('healthThreshold', 'low')
 
@@ -1093,10 +1087,8 @@ def checkstyle(parser, xml_parent, data):
     XML.SubElement(checkstyle, 'defaultEncoding').text = \
         data.get('defaultEncoding', '')
 
-    if data.get('canRunOnFailed', False):
-        XML.SubElement(checkstyle, 'canRunOnFailed').text = 'true'
-    else:
-        XML.SubElement(checkstyle, 'canRunOnFailed').text = 'false'
+    XML.SubElement(checkstyle, 'canRunOnFailed').text = str(
+        data.get('canRunOnFailed', False)).lower()
 
     XML.SubElement(checkstyle, 'useStableBuildAsReference').text = 'false'
 
@@ -1107,58 +1099,26 @@ def checkstyle(parser, xml_parent, data):
     dfailed = dthresholds.get('failed', {})
     thresholds = XML.SubElement(checkstyle, 'thresholds')
 
-    dval = dunstable.get('totalAll', None)
-    if dval:
-        XML.SubElement(thresholds, 'unstableTotalAll').text = str(dval)
-    else:
-        XML.SubElement(thresholds, 'unstableTotalAll')
+    XML.SubElement(thresholds, 'unstableTotalAll').text = str(
+        dunstable.get('totalAll', ''))
+    XML.SubElement(thresholds, 'unstableTotalHigh').text = str(
+        dunstable.get('totalHigh', ''))
+    XML.SubElement(thresholds, 'unstableTotalNormal').text = str(
+        dunstable.get('totalNormal', ''))
+    XML.SubElement(thresholds, 'unstableTotalLow').text = str(
+        dunstable.get('totalLow', ''))
 
-    dval = dunstable.get('totalHigh', None)
-    if dval:
-        XML.SubElement(thresholds, 'unstableTotalHigh').text = str(dval)
-    else:
-        XML.SubElement(thresholds, 'unstableTotalHigh')
+    XML.SubElement(thresholds, 'failedTotalAll').text = str(
+        dfailed.get('totalAll', ''))
+    XML.SubElement(thresholds, 'failedTotalHigh').text = str(
+        dfailed.get('totalHigh', ''))
+    XML.SubElement(thresholds, 'failedTotalNormal').text = str(
+        dfailed.get('totalNormal', ''))
+    XML.SubElement(thresholds, 'failedTotalLow').text = str(
+        dfailed.get('totalLow', ''))
 
-    dval = dunstable.get('totalNormal', None)
-    if dval:
-        XML.SubElement(thresholds, 'unstableTotalNormal').text = str(dval)
-    else:
-        XML.SubElement(thresholds, 'unstableTotalNormal')
-
-    dval = dunstable.get('totalLow', None)
-    if dval:
-        XML.SubElement(thresholds, 'unstableTotalLow').text = str(dval)
-    else:
-        XML.SubElement(thresholds, 'unstableTotalLow')
-
-    dval = dfailed.get('totalAll', None)
-    if dval:
-        XML.SubElement(thresholds, 'failedTotalAll').text = str(dval)
-    else:
-        XML.SubElement(thresholds, 'failedTotalAll')
-
-    dval = dfailed.get('totalHigh', None)
-    if dval:
-        XML.SubElement(thresholds, 'failedTotalHigh').text = str(dval)
-    else:
-        XML.SubElement(thresholds, 'failedTotalHigh')
-
-    dval = dfailed.get('totalNormal', None)
-    if dval:
-        XML.SubElement(thresholds, 'failedTotalNormal').text = str(dval)
-    else:
-        XML.SubElement(thresholds, 'failedTotalNormal')
-
-    dval = dfailed.get('totalLow', None)
-    if dval:
-        XML.SubElement(thresholds, 'failedTotalLow').text = str(dval)
-    else:
-        XML.SubElement(thresholds, 'failedTotalLow')
-
-    if data.get('shouldDetectModules', False):
-        XML.SubElement(checkstyle, 'shouldDetectModules').text = 'true'
-    else:
-        XML.SubElement(checkstyle, 'shouldDetectModules').text = 'false'
+    XML.SubElement(checkstyle, 'shouldDetectModules').text = \
+        str(data.get('shouldDetectModules', False)).lower()
 
     XML.SubElement(checkstyle, 'dontComputeNew').text = 'true'
 
@@ -2381,6 +2341,112 @@ def post_tasks(parser, xml_parent, data):
             task.get('script', ''))
 
 
+def postbuildscript(parser, xml_parent, data):
+    """yaml: postbuildscript
+    Executes additional builders, script or Groovy after the build is
+    complete.
+
+    Requires the Jenkins `Post Build Script plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/PostBuildScript+Plugin>`_
+
+    :arg list generic-script: Paths to Batch/Shell scripts
+    :arg list groovy-script: Paths to Groovy scripts
+    :arg list groovy: Inline Groovy
+    :arg list builders: Any supported builders, see :doc:`builders`.
+    :arg bool onsuccess: Scripts and builders are run only if the build succeed
+                         (default False)
+    :arg bool onfailure: Scripts and builders are run only if the build fail
+                         (default True)
+    :arg str execute-on: For matrix projects, scripts can be run after each
+                         axis is built (`axes`), after all axis of the matrix
+                         are built (`matrix`) or after each axis AND the matrix
+                         are built (`both`).
+
+    The `onsuccess` and `onfailure` options are confusing. If you want
+    the post build to always run regardless of the build status, you
+    should set them both to `false`.
+
+    Example:
+
+    .. literalinclude:: /../../tests/publishers/fixtures/\
+postbuildscript001.yaml
+
+    You can also execute :doc:`builders </builders>`:
+
+    .. literalinclude:: /../../tests/publishers/fixtures/\
+postbuildscript002.yaml
+
+    Run once after the whole matrix (all axes) is built:
+
+    .. literalinclude:: /../../tests/publishers/fixtures/\
+postbuildscript003.yaml
+
+    """
+
+    pbs_xml = XML.SubElement(
+        xml_parent,
+        'org.jenkinsci.plugins.postbuildscript.PostBuildScript')
+
+    # Shell/Groovy in a file
+    script_types = {
+        'generic': 'GenericScript',
+        'groovy': 'GroovyScriptFile',
+    }
+    for script_type in script_types.keys():
+        if script_type + '-script' not in data:
+            continue
+
+        scripts_xml = XML.SubElement(pbs_xml, script_type + 'ScriptFileList')
+        for shell_scripts in [data.get(script_type + '-script', [])]:
+            for shell_script in shell_scripts:
+                script_xml = XML.SubElement(
+                    scripts_xml,
+                    'org.jenkinsci.plugins.postbuildscript.'
+                    + script_types[script_type])
+                file_path_xml = XML.SubElement(script_xml, 'filePath')
+                file_path_xml.text = shell_script
+
+    # Inlined Groovy
+    if 'groovy' in data:
+        groovy_inline_xml = XML.SubElement(pbs_xml, 'groovyScriptContentList')
+        for groovy in data.get('groovy', []):
+            groovy_xml = XML.SubElement(
+                groovy_inline_xml,
+                'org.jenkinsci.plugins.postbuildscript.GroovyScriptContent'
+            )
+            groovy_content = XML.SubElement(groovy_xml, 'content')
+            groovy_content.text = groovy
+
+    # Inject builders
+    if 'builders' in data:
+        build_steps_xml = XML.SubElement(pbs_xml, 'buildSteps')
+        for builder in data.get('builders', []):
+            parser.registry.dispatch('builder', parser, build_steps_xml,
+                                     builder)
+
+    # When to run the build? Note the plugin let one specify both options
+    # although they are antinomic
+    success_xml = XML.SubElement(pbs_xml, 'scriptOnlyIfSuccess')
+    success_xml.text = str(data.get('onsuccess', True)).lower()
+    failure_xml = XML.SubElement(pbs_xml, 'scriptOnlyIfFailure')
+    failure_xml.text = str(data.get('onfailure', False)).lower()
+
+    # TODO: we may want to avoid setting "execute-on" on non-matrix jobs,
+    # either by skipping this part or by raising an error to let the user know
+    # an attempt was made to set execute-on on a non-matrix job. There are
+    # currently no easy ways to check for this though.
+    if 'execute-on' in data:
+        valid_values = ('matrix', 'axes', 'both')
+        execute_on = data['execute-on'].lower()
+        if execute_on not in valid_values:
+            raise JenkinsJobsException(
+                'execute-on must be one of %s, got %s' %
+                valid_values, execute_on
+            )
+        execute_on_xml = XML.SubElement(pbs_xml, 'executeOn')
+        execute_on_xml.text = execute_on.upper()
+
+
 def xml_summary(parser, xml_parent, data):
     """yaml: xml-summary
     Adds support for the Summary Display Plugin
@@ -3249,6 +3315,33 @@ def description_setter(parser, xml_parent, data):
     XML.SubElement(descriptionsetter, 'setForMatrix').text = for_matrix
 
 
+def doxygen(parser, xml_parent, data):
+    """yaml: doxygen
+    This plugin parses the Doxygen descriptor (Doxyfile) and provides a link to
+    the generated Doxygen documentation.
+
+    Requires the Jenkins `Doxygen Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Doxygen+Plugin>`_
+
+    :arg str doxyfile: The doxyfile path
+    :arg bool keepall: Retain doxygen generation for each successful build
+        (default: false)
+    :arg str folder: Folder where you run doxygen (default: '')
+
+    Example:
+
+    .. literalinclude:: /../../tests/publishers/fixtures/doxygen001.yaml
+
+    """
+    p = XML.SubElement(xml_parent, 'hudson.plugins.doxygen.DoxygenArchiver')
+    if not data['doxyfile']:
+        raise JenkinsJobsException("The path to a doxyfile must be specified.")
+    XML.SubElement(p, 'doxyfilePath').text = str(data.get("doxyfile"))
+    XML.SubElement(p, 'keepAll').text = str(data.get("keepall", False)).lower()
+    XML.SubElement(p, 'folderWhereYouRunDoxygen').text = \
+        str(data.get("folder", ""))
+
+
 def sitemonitor(parser, xml_parent, data):
     """yaml: sitemonitor
     This plugin checks the availability of an url.
@@ -3414,6 +3507,27 @@ def ruby_metrics(parser, xml_parent, data):
                 XML.SubElement(el, elname).text = str(threshold_value)
     else:
         raise JenkinsJobsException('Coverage metric targets must be set')
+
+
+def fitnesse(parser, xml_parent, data):
+    """yaml: fitnesse
+    Publish Fitnesse test results
+
+    Requires the Jenkins `Fitnesse plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Fitnesse+Plugin>`_
+
+    :arg str results: path specifier for results files
+
+    Example:
+
+    .. literalinclude::  /../../tests/publishers/fixtures/fitnesse001.yaml
+
+    """
+    fitnesse = XML.SubElement(
+        xml_parent,
+        'hudson.plugins.fitnesse.FitnesseResultsRecorder')
+    results = data.get('results', '')
+    XML.SubElement(fitnesse, 'fitnessePathToXmlResultsIn').text = results
 
 
 class Publishers(jenkins_jobs.modules.base.Base):

@@ -15,6 +15,7 @@
 
 # Manage jobs in Jenkins server
 
+import errno
 import os
 import sys
 import hashlib
@@ -117,9 +118,10 @@ def matches(what, where):
 
 class YamlParser(object):
     def __init__(self, config=None):
-        self.registry = ModuleRegistry(config)
         self.data = {}
         self.jobs = []
+        self.config = config
+        self.registry = ModuleRegistry(self.config)
 
     def parse_fp(self, fp):
         data = yaml.load(fp)
@@ -291,8 +293,18 @@ class YamlParser(object):
 
     def getXMLForJob(self, data):
         kind = data.get('project-type', 'freestyle')
-        data["description"] = (data.get("description", "") +
-                               self.get_managed_string()).lstrip()
+        if self.config:
+            keep_desc = self.config.getboolean('job_builder',
+                                               'keep_descriptions')
+        else:
+            keep_desc = False
+        if keep_desc:
+            description = data.get("description", None)
+        else:
+            description = data.get("description", '')
+        if description is not None:
+            data["description"] = description + \
+                self.get_managed_string().lstrip()
         for ep in pkg_resources.iter_entry_points(
                 group='jenkins_jobs.projects', name=kind):
             Mod = ep.load()
@@ -351,7 +363,7 @@ class ModuleRegistry(object):
 
         :arg string component_type: the name of the component
           (e.g., `builder`)
-        :arg YAMLParser parser: the global YMAL Parser
+        :arg YAMLParser parser: the global YAML Parser
         :arg Element xml_parent: the parent XML element
         :arg dict template_data: values that should be interpolated into
           the component definition
@@ -570,8 +582,8 @@ class Builder(object):
         for job in jobs:
             self.delete_job(job['name'])
 
-    def update_job(self, fn, names=None, output_dir=None):
-        self.load_files(fn)
+    def update_job(self, input_fn, names=None, output=None):
+        self.load_files(input_fn)
         self.parser.generateXML(names)
 
         self.parser.jobs.sort(lambda a, b: cmp(a.name, b.name))
@@ -579,13 +591,32 @@ class Builder(object):
         for job in self.parser.jobs:
             if names and not matches(job.name, names):
                 continue
-            if output_dir:
-                if names:
-                    print job.output()
+            if output:
+                if hasattr(output, 'write'):
+                    # `output` is a file-like object
+                    logger.debug("Writing XML to '{0}'".format(output))
+                    try:
+                        output.write(job.output())
+                    except IOError as exc:
+                        if exc.errno == errno.EPIPE:
+                            # EPIPE could happen if piping output to something
+                            # that doesn't read the whole input (e.g.: the UNIX
+                            # `head` command)
+                            return
+                        raise
                     continue
-                fn = os.path.join(output_dir, job.name)
-                logger.debug("Writing XML to '{0}'".format(fn))
-                f = open(fn, 'w')
+
+                output_dir = output
+
+                try:
+                    os.makedirs(output_dir)
+                except OSError:
+                    if not os.path.isdir(output_dir):
+                        raise
+
+                output_fn = os.path.join(output_dir, job.name)
+                logger.debug("Writing XML to '{0}'".format(output_fn))
+                f = open(output_fn, 'w')
                 f.write(job.output())
                 f.close()
                 continue

@@ -50,16 +50,33 @@ def shell(parser, xml_parent, data):
     """yaml: shell
     Execute a shell command.
 
-    :Parameter: the shell command to execute
+    :arg str parameter: the shell command to execute
 
-    Example::
+    Example:
 
-      builders:
-        - shell: "make test"
+    .. literalinclude:: /../../tests/builders/fixtures/shell.yaml
+       :language: yaml
 
     """
     shell = XML.SubElement(xml_parent, 'hudson.tasks.Shell')
     XML.SubElement(shell, 'command').text = data
+
+
+def python(parser, xml_parent, data):
+    """yaml: python
+    Execute a python command. Requires the Jenkins `Python plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Python+Plugin>`_
+
+    :arg str parameter: the python command to execute
+
+    Example:
+
+    .. literalinclude:: /../../tests/builders/fixtures/python.yaml
+       :language: yaml
+
+    """
+    python = XML.SubElement(xml_parent, 'hudson.plugins.python.Python')
+    XML.SubElement(python, 'command').text = data
 
 
 def copyartifact(parser, xml_parent, data):
@@ -107,18 +124,10 @@ def copyartifact(parser, xml_parent, data):
       * **last-unsuccessful**
 
 
-    Example::
+    Example:
 
-      builders:
-        - copyartifact:
-            project: foo
-            filter: *.tar.gz
-            target: /home/foo
-            which-build: specific-build
-            build-number: 123
-            optional: true
-            flatten: true
-            parameter-filters: PUBLISH=true
+    .. literalinclude:: ../../tests/builders/fixtures/copy-artifact001.yaml
+       :language: yaml
     """
     t = XML.SubElement(xml_parent, 'hudson.plugins.copyartifact.CopyArtifact')
     # Warning: this only works with copy artifact version 1.26+,
@@ -188,14 +197,11 @@ def ant(parser, xml_parent, data):
     of targets to build.
 
     :Parameter: space separated list of Ant targets
-    :arg str ant-name: the name of the ant installation,
-        defaults to 'default' (optional)
 
-    Example to call two Ant targets::
+    Example to call two Ant targets:
 
-        builders:
-          - ant: "target1 target2"
-             ant-name: "Standard Ant"
+    .. literalinclude:: ../../tests/builders/fixtures/ant001.yaml
+       :language: yaml
 
     The build file would be whatever the Jenkins Ant Plugin is set to use
     per default (i.e build.xml in the workspace root).
@@ -211,27 +217,17 @@ def ant(parser, xml_parent, data):
         must be in quotes (optional)
 
 
-    Example specifying the build file too and several targets::
+    Example specifying the build file too and several targets:
 
-        builders:
-          - ant:
-             targets: "debug test install"
-             buildfile: "build.xml"
-             properties:
-                builddir: "/tmp/"
-                failonerror: true
-             java-opts:
-                - "-ea"
-                - "-Xmx512m"
-             ant-name: "Standard Ant"
-
+    .. literalinclude:: ../../tests/builders/fixtures/ant002.yaml
+       :language: yaml
     """
     ant = XML.SubElement(xml_parent, 'hudson.tasks.Ant')
 
     if type(data) is str:
         # Support for short form: -ant: "target"
         data = {'targets': data}
-    for setting, value in data.iteritems():
+    for setting, value in sorted(data.iteritems()):
         if setting == 'targets':
             targets = XML.SubElement(ant, 'targets')
             targets.text = value
@@ -279,6 +275,7 @@ def trigger_builds(parser, xml_parent, data):
     Example:
 
     .. literalinclude:: /../../tests/builders/fixtures/trigger-builds001.yaml
+       :language: yaml
     """
     tbuilder = XML.SubElement(xml_parent,
                               'hudson.plugins.parameterizedtrigger.'
@@ -368,11 +365,10 @@ def builders_from(parser, xml_parent, data):
 
     :arg str projectName: the name of the other project
 
-    Example::
+    Example:
 
-      builders:
-        - builders-from:
-            - project: "base-build"
+    .. literalinclude:: ../../tests/builders/fixtures/builders-from.yaml
+       :language: yaml
     """
     pbs = XML.SubElement(xml_parent,
                          'hudson.plugins.templateproject.ProxyBuilder')
@@ -388,12 +384,10 @@ def inject(parser, xml_parent, data):
     :arg str properties-file: the name of the property file (optional)
     :arg str properties-content: the properties content (optional)
 
-    Example::
+    Example:
 
-      builders:
-        - inject:
-            properties-file: example.prop
-            properties-content: EXAMPLE=foo-bar
+    .. literalinclude:: ../../tests/builders/fixtures/inject.yaml
+       :language: yaml
     """
     eib = XML.SubElement(xml_parent, 'EnvInjectBuilder')
     info = XML.SubElement(eib, 'info')
@@ -425,23 +419,10 @@ def artifact_resolver(parser, xml_parent, data):
                  * **target-file-name** (`str`) -- What to name the artifact
                    (default '')
 
-    Example::
+    Example:
 
-      builders:
-        - artifact-resolver:
-            fail-on-error: true
-            repository-logging: true
-            target-directory: foo
-            artifacts:
-              - group-id: commons-logging
-                artifact-id: commons-logging
-                version: 1.1
-                classifier: src
-                extension: jar
-                target-file-name: comm-log.jar
-              - group-id: commons-lang
-                artifact-id: commons-lang
-                version: 1.2
+    .. literalinclude:: ../../tests/builders/fixtures/artifact-resolver.yaml
+       :language: yaml
     """
     ar = XML.SubElement(xml_parent,
                         'org.jvnet.hudson.plugins.repositoryconnector.'
@@ -490,22 +471,10 @@ def gradle(parser, xml_parent, data):
         root) here, such as ${workspace}/parent/ instead of just
         ${workspace}.
 
-    Example::
+    Example:
 
-      builders:
-        - gradle:
-            gradle-name: "gradle-1.2"
-            wrapper: true
-            executable: true
-            use-root-dir: true
-            root-build-script-dir: ${workspace}/tests
-            switches:
-              - "-g /foo/bar/.gradle"
-              - "-PmavenUserName=foobar"
-            tasks: |
-                   init
-                   build
-                   tests
+    .. literalinclude:: ../../tests/builders/fixtures/gradle.yaml
+       :language: yaml
     """
     gradle = XML.SubElement(xml_parent, 'hudson.plugins.gradle.Gradle')
     XML.SubElement(gradle, 'description').text = ''
@@ -531,11 +500,10 @@ def batch(parser, xml_parent, data):
 
     :Parameter: the batch command to execute
 
-    Example::
+    Example:
 
-      builders:
-        - batch: "foo/foo.bat"
-
+    .. literalinclude:: ../../tests/builders/fixtures/batch.yaml
+       :language: yaml
     """
     batch = XML.SubElement(xml_parent, 'hudson.tasks.BatchFile')
     XML.SubElement(batch, 'command').text = data
@@ -555,16 +523,10 @@ def msbuild(parser, xml_parent, data):
     :arg bool continue-on-build-failure: should the build continue if
       msbuild returns an error (defaults to false)
 
-    Example::
+    Example:
 
-      builders:
-        - msbuild:
-            solution-file: "MySolution.sln"
-            msbuild-version: "msbuild-4.0"
-            extra-parameters: "/maxcpucount:4"
-            pass-build-variables: False
-            continue-on-build-failure: True
-
+    .. literalinclude:: ../../tests/builders/fixtures/msbuild.yaml
+       :language: yaml
     """
     msbuilder = XML.SubElement(xml_parent,
                                'hudson.plugins.msbuild.MsBuildBuilder')
@@ -643,6 +605,7 @@ def conditional_step(parser, xml_parent, data):
 
     .. literalinclude:: \
     /../../tests/builders/fixtures/conditional-step-success-failure.yaml
+       :language: yaml
     """
     def build_condition(cdata):
         kind = cdata['condition-kind']
@@ -777,6 +740,7 @@ def maven_target(parser, xml_parent, data):
     Example:
 
     .. literalinclude:: /../../tests/builders/fixtures/maven-target-doc.yaml
+       :language: yaml
     """
     maven = XML.SubElement(xml_parent, 'hudson.tasks.Maven')
     XML.SubElement(maven, 'targets').text = data['goals']
@@ -840,32 +804,10 @@ def multijob(parser, xml_parent, data):
                 * **predefined-parameters** (`str`) -- Pass predefined
                   parameters to the other job (optional)
 
-    Example::
+    Example:
 
-      builders:
-        - multijob:
-            name: PhaseOne
-            condition: SUCCESSFUL
-            projects:
-              - name: PhaseOneJobA
-                current-parameters: true
-                node-label-name: "vm_name"
-                node-label: "agent-${BUILD_NUMBER}"
-                git-revision: true
-              - name: PhaseOneJobB
-                current-parameters: true
-                property-file: build.props
-        - multijob:
-            name: PhaseTwo
-            condition: UNSTABLE
-            projects:
-              - name: PhaseTwoJobA
-                current-parameters: true
-                predefined-parameters: foo=bar
-              - name: PhaseTwoJobB
-                current-parameters: false
-
-
+    .. literalinclude:: ../../tests/builders/fixtures/multibuild.yaml
+       :language: yaml
     """
     builder = XML.SubElement(xml_parent, 'com.tikal.jenkins.plugins.multijob.'
                                          'MultiJobBuilder')
@@ -959,26 +901,10 @@ def grails(parser, xml_parent, data):
     :arg bool refresh-dependencies: append --refresh-dependencies to all
                                     build targets (default false)
 
-    Example::
+    Example:
 
-      builders:
-        - grails:
-            use-wrapper: "true"
-            name: "grails-2.2.2"
-            force-upgrade: "true"
-            non-interactive: "true"
-            targets: "war ear"
-            server-port: "8003"
-            work-dir: "./grails-work"
-            project-dir: "./project-work"
-            base-dir: "./grails/project"
-            properties: "program.name=foo"
-            plain-output: "true"
-            stack-trace: "true"
-            verbose: "true"
-            refresh-dependencies: "true"
-
-
+    .. literalinclude:: ../../tests/builders/fixtures/grails.yaml
+       :language: yaml
     """
     grails = XML.SubElement(xml_parent, 'com.g2one.hudson.grails.'
                                         'GrailsBuilder')
@@ -1025,14 +951,10 @@ def sbt(parser, xml_parent, data):
                         (default '-Dsbt.log.noformat=true')
     :arg str subdir-path: Path relative to workspace to run sbt in (default '')
 
-    Example::
+    Example:
 
-      builders:
-        - sbt:
-            name: "default"
-            actions: "clean package"
-            jvm-flags: "-Xmx8G"
-
+    .. literalinclude:: ../../tests/builders/fixtures/sbt.yaml
+       :language: yaml
     """
     sbt = XML.SubElement(xml_parent, 'org.jvnet.hudson.plugins.'
                                      'SbtPluginBuilder')
@@ -1046,6 +968,64 @@ def sbt(parser, xml_parent, data):
         'actions', '')
     XML.SubElement(sbt, 'subdirPath').text = data.get(
         'subdir-path', '')
+
+
+def critical_block_start(parser, xml_parent, data):
+    """yaml: critical-block-start
+    Designate the start of a critical block. Must be used in conjuction with
+    critical-block-end.
+
+    Must also add a build wrapper (exclusion), specifying the resources that
+    control the critical block. Otherwise, this will have no effect.
+
+    Requires Jenkins `Exclusion Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Exclusion-Plugin>`_
+
+    Example::
+
+      wrappers:
+        - exclusion:
+            resources:
+              myresource1
+      builders:
+        - critical-block-start
+        - ... other builders
+        - critical-block-end
+
+    """
+    cbs = \
+        XML.SubElement(xml_parent,
+                       'org.jvnet.hudson.plugins.exclusion.CriticalBlockStart')
+    cbs.set('plugin', 'Exclusion')
+
+
+def critical_block_end(parser, xml_parent, data):
+    """yaml: critical-block-end
+    Designate the end of a critical block. Must be used in conjuction with
+    critical-block-start.
+
+    Must also add a build wrapper (exclusion), specifying the resources that
+    control the critical block. Otherwise, this will have no effect.
+
+    Requires Jenkins `Exclusion Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Exclusion-Plugin>`_
+
+    Example::
+
+      wrappers:
+        - exclusion:
+            resources:
+              myresource1
+      builders:
+        - critical-block-start
+        - ... other builders
+        - critical-block-end
+
+    """
+    cbs = \
+        XML.SubElement(xml_parent,
+                       'org.jvnet.hudson.plugins.exclusion.CriticalBlockEnd')
+    cbs.set('plugin', 'Exclusion')
 
 
 class Builders(jenkins_jobs.modules.base.Base):
@@ -1129,12 +1109,15 @@ def shining_panda(parser, xml_parent, data):
 
     .. literalinclude:: \
         /../../tests/builders/fixtures/shining-panda-pythonenv.yaml
+       :language: yaml
 
     .. literalinclude:: \
         /../../tests/builders/fixtures/shining-panda-customenv.yaml
+       :language: yaml
 
     .. literalinclude:: \
         /../../tests/builders/fixtures/shining-panda-virtualenv.yaml
+       :language: yaml
     """
 
     pluginelementpart = 'jenkins.plugins.shiningpanda.builders.'
