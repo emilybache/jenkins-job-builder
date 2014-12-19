@@ -33,6 +33,8 @@
     <skipTag>false</skipTag>
     <scmName/>
     <useShallowClone>false</useShallowClone>
+    <ignoreNotifyCommit>false</ignoreNotifyCommit>
     <localBranch>master</localBranch>
+    <extensions/>
   </scm>
 </project>

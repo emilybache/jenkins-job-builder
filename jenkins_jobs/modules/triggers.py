@@ -30,10 +30,19 @@ Example::
 """
 
 
+import six
 import xml.etree.ElementTree as XML
+from jenkins_jobs.errors import JenkinsJobsException
 import jenkins_jobs.modules.base
+from jenkins_jobs.modules import hudson_model
 import logging
 import re
+try:
+    from collections import OrderedDict
+except ImportError:
+    from ordereddict import OrderedDict
+
+logger = logging.getLogger(str(__name__))
 
 
 def gerrit_handle_legacy_configuration(data):
@@ -48,7 +57,10 @@ def gerrit_handle_legacy_configuration(data):
     def convert_dict(d, old_keys):
         for old_key in old_keys:
             if old_key in d:
-                d[hyphenize(old_key)] = d[old_key]
+                new_key = hyphenize(old_key)
+                logger.warn("'%s' is deprecated and will be removed after "
+                            "1.0.0, please use '%s' instead", old_key, new_key)
+                d[new_key] = d[old_key]
                 del d[old_key]
 
     convert_dict(data, [
@@ -67,6 +79,7 @@ def gerrit_handle_legacy_configuration(data):
         'failureMessage',
         'skipVote',
     ])
+
     for project in data['projects']:
         convert_dict(project, [
             'projectCompareType',
@@ -75,44 +88,97 @@ def gerrit_handle_legacy_configuration(data):
             'branchPattern',
         ])
 
+    old_format_events = OrderedDict(
+        (key, should_register) for key, should_register in six.iteritems(data)
+        if key.startswith('trigger-on-'))
+    trigger_on = data.setdefault('trigger-on', [])
+    if old_format_events:
+        logger.warn("The events: %s; which you used is/are deprecated. "
+                    "Please use 'trigger-on' instead.",
+                    ', '.join(old_format_events))
+
+    if old_format_events and trigger_on:
+        raise JenkinsJobsException(
+            'Both, the new format (trigger-on) and old format (trigger-on-*) '
+            'gerrit events format found. Please use either the new or the old '
+            'format of trigger events definition.')
+
+    trigger_on.extend(event_name[len('trigger-on-'):]
+                      for event_name, should_register
+                      in six.iteritems(old_format_events) if should_register)
+
+    for idx, event in enumerate(trigger_on):
+        if event == 'comment-added-event':
+            trigger_on[idx] = events = OrderedDict()
+            events['comment-added-event'] = OrderedDict((
+                ('approval-category', data['trigger-approval-category']),
+                ('approval-value', data['trigger-approval-value'])
+            ))
+
 
 def build_gerrit_triggers(xml_parent, data):
     available_simple_triggers = {
-        'trigger-on-change-abandoned-event': 'PluginChangeAbandonedEvent',
-        'trigger-on-change-merged-event': 'PluginChangeMergedEvent',
-        'trigger-on-change-restored-event': 'PluginChangeRestoredEvent',
-        'trigger-on-draft-published-event': 'PluginDraftPublishedEvent',
-        'trigger-on-patchset-uploaded-event': 'PluginPatchsetCreatedEvent',
-        'trigger-on-ref-updated-event': 'PluginRefUpdatedEvent',
+        'change-abandoned-event': 'PluginChangeAbandonedEvent',
+        'change-merged-event': 'PluginChangeMergedEvent',
+        'change-restored-event': 'PluginChangeRestoredEvent',
+        'draft-published-event': 'PluginDraftPublishedEvent',
+        'patchset-uploaded-event': 'PluginPatchsetCreatedEvent',
+        'patchset-created-event': 'PluginPatchsetCreatedEvent',
+        'ref-updated-event': 'PluginRefUpdatedEvent',
     }
     tag_namespace = 'com.sonyericsson.hudson.plugins.gerrit.trigger.'   \
         'hudsontrigger.events'
 
     trigger_on_events = XML.SubElement(xml_parent, 'triggerOnEvents')
-    for config_key, tag_name in available_simple_triggers.iteritems():
-        if data.get(config_key, False):
+
+    for event in data.get('trigger-on', []):
+        if isinstance(event, six.string_types):
+            tag_name = available_simple_triggers.get(event)
+            if event == 'patchset-uploaded-event':
+                logger.warn("'%s' is deprecated. Use 'patchset-created-event'"
+                            "instead.", event)
+
+            if not tag_name:
+                known = ', '.join(available_simple_triggers.keys()
+                                  + ['comment-added-event',
+                                     'comment-added-contains-event'])
+                msg = ("The event '%s' under 'trigger-on' is not one of the "
+                       "known: %s.") % (event, known)
+                raise JenkinsJobsException(msg)
             XML.SubElement(trigger_on_events,
                            '%s.%s' % (tag_namespace, tag_name))
+        else:
+            if 'comment-added-event' in event.keys():
+                comment_added_event = event['comment-added-event']
+                cadded = XML.SubElement(
+                    trigger_on_events,
+                    '%s.%s' % (tag_namespace, 'PluginCommentAddedEvent'))
+                XML.SubElement(cadded, 'verdictCategory').text = \
+                    comment_added_event['approval-category']
+                XML.SubElement(
+                    cadded,
+                    'commentAddedTriggerApprovalValue').text = \
+                    str(comment_added_event['approval-value'])
 
-    if data.get('trigger-on-comment-added-event', False):
-        cadded = XML.SubElement(trigger_on_events,
-                                '%s.%s' % (tag_namespace,
-                                           'PluginCommentAddedEvent'))
-        XML.SubElement(cadded, 'verdictCategory').text = \
-            data['trigger-approval-category']
-        XML.SubElement(cadded, 'commentAddedTriggerApprovalValue').text = \
-            str(data['trigger-approval-value'])
+            if 'comment-added-contains-event' in event.keys():
+                comment_added_event = event['comment-added-contains-event']
+                caddedc = XML.SubElement(
+                    trigger_on_events,
+                    '%s.%s' % (tag_namespace,
+                               'PluginCommentAddedContainsEvent'))
+                XML.SubElement(caddedc, 'commentAddedCommentContains').text = \
+                    comment_added_event['comment-contains-value']
 
 
 def build_gerrit_skip_votes(xml_parent, data):
-    outcomes = {'successful': 'onSuccessful',
-                'failed': 'onFailed',
-                'unstable': 'onUnstable',
-                'notbuilt': 'onNotBuilt'}
+    outcomes = [('successful', 'onSuccessful'),
+                ('failed', 'onFailed'),
+                ('unstable', 'onUnstable'),
+                ('notbuilt', 'onNotBuilt')]
 
     skip_vote_node = XML.SubElement(xml_parent, 'skipVote')
     skip_vote = data.get('skip-vote', {})
-    for result_kind, tag_name in outcomes.iteritems():
+    for result_kind, tag_name in outcomes:
         if skip_vote.get(result_kind, False):
             XML.SubElement(skip_vote_node, tag_name).text = 'true'
         else:
@@ -121,22 +187,90 @@ def build_gerrit_skip_votes(xml_parent, data):
 
 def gerrit(parser, xml_parent, data):
     """yaml: gerrit
+
     Trigger on a Gerrit event.
     Requires the Jenkins `Gerrit Trigger Plugin
     <wiki.jenkins-ci.org/display/JENKINS/Gerrit+Trigger>`_ version >= 2.6.0.
 
-    :arg bool trigger-on-patchset-uploaded-event: Trigger on patchset upload
+    :arg list trigger-on: Events to react on. Please use either the new
+      **trigger-on**, or the old **trigger-on-*** events definitions. You
+      cannot use both at once.
+
+      .. _trigger_on:
+
+      :Trigger on:
+
+         * **patchset-created-event** -- Trigger upon patchset creation.
+         * **patchset-uploaded-event** -- Trigger upon patchset creation
+           (this is a alias for `patchset-created-event`).
+
+           .. deprecated:: 1.1.0  Please use :ref:`trigger-on <trigger_on>`.
+
+         * **change-abandoned-event** -- Trigger on patchset abandoned.
+           Requires Gerrit Trigger Plugin version >= 2.8.0.
+         * **change-merged-event** -- Trigger on change merged
+         * **change-restored-event** -- Trigger on change restored. Requires
+           Gerrit Trigger Plugin version >= 2.8.0
+         * **draft-published-event** -- Trigger on draft published event.
+         * **ref-updated-event** -- Trigger on ref-updated.
+         * **comment-added-event** (`dict`) -- Trigger on comment added.
+
+           :Comment added:
+               * **approval-category** (`str`) -- Approval (verdict) category
+                 (for example 'APRV', 'CRVW', 'VRIF' -- see `Gerrit access
+                 control
+                 <http://gerrit.googlecode.com/svn/documentation/2.1/
+                 access-control.html#categories>`_
+
+               * **approval-value** -- Approval value for the comment added.
+         * **comment-added-contains-event** (`dict`) -- Trigger on comment
+                                                        added contains
+                                                        Regular Expression.
+
+           :Comment added contains:
+               * **comment-contains-value** (`str`) -- Comment contains
+                                                       Regular Expression
+                                                       value.
+
+    :arg bool trigger-on-patchset-uploaded-event: Trigger on patchset upload.
+
+        .. deprecated:: 1.1.0. Please use :ref:`trigger-on <trigger_on>`.
+
     :arg bool trigger-on-change-abandoned-event: Trigger on change abandoned.
         Requires Gerrit Trigger Plugin version >= 2.8.0
+
+        .. deprecated:: 1.1.0. Please use :ref:`trigger-on <trigger_on>`.
+
     :arg bool trigger-on-change-merged-event: Trigger on change merged
+
+        .. deprecated:: 1.1.0. Please use :ref:`trigger-on <trigger_on>`.
+
     :arg bool trigger-on-change-restored-event: Trigger on change restored.
         Requires Gerrit Trigger Plugin version >= 2.8.0
+
+        .. deprecated:: 1.1.0. Please use :ref:`trigger-on <trigger_on>`.
+
     :arg bool trigger-on-comment-added-event: Trigger on comment added
+
+        .. deprecated:: 1.1.0. Please use :ref:`trigger-on <trigger_on>`.
+
     :arg bool trigger-on-draft-published-event: Trigger on draft published
         event
+
+        .. deprecated:: 1.1.0  Please use :ref:`trigger-on <trigger_on>`.
+
     :arg bool trigger-on-ref-updated-event: Trigger on ref-updated
+
+        .. deprecated:: 1.1.0. Please use :ref:`trigger-on <trigger_on>`.
+
     :arg str trigger-approval-category: Approval category for comment added
+
+        .. deprecated:: 1.1.0. Please use :ref:`trigger-on <trigger_on>`.
+
     :arg int trigger-approval-value: Approval value for comment added
+
+        .. deprecated:: 1.1.0. Please use :ref:`trigger-on <trigger_on>`.
+
     :arg bool override-votes: Override default vote values
     :arg int gerrit-build-successful-verified-value: Successful ''Verified''
         value
@@ -147,6 +281,7 @@ def gerrit(parser, xml_parent, data):
     :arg str failure-message: Message to leave on failure (default '')
     :arg str successful-message: Message to leave on success (default '')
     :arg str unstable-message: Message to leave when unstable (default '')
+    :arg str notbuilt-message: Message to leave when not built (default '')
     :arg list projects: list of projects to match
 
       :Project: * **project-compare-type** (`str`) --  ''PLAIN'', ''ANT'' or
@@ -160,7 +295,7 @@ def gerrit(parser, xml_parent, data):
                   (optional)
 
                   :Branch: * **branch-compare-type** (`str`) -- ''PLAIN'',
-                             ''ANT'' or ''REG_EXP'' (optional, defaults to
+                             ''ANT'' or ''REG_EXP'' (optional) (default
                              ''PLAIN'')
                            * **branch-pattern** (`str`) -- Branch name pattern
                              to match
@@ -169,9 +304,16 @@ def gerrit(parser, xml_parent, data):
                   (optional)
 
                   :File Path: * **compare-type** (`str`) -- ''PLAIN'', ''ANT''
-                                or ''REG_EXP'' (optional, defaults to
-                                ''PLAIN'')
+                                or ''REG_EXP'' (optional) (default ''PLAIN'')
                               * **pattern** (`str`) -- File path pattern to
+                                match
+
+                * **topics** (`list`) -- List of topics to match
+                  (optional)
+
+                  :File Path: * **compare-type** (`str`) -- ''PLAIN'', ''ANT''
+                                or ''REG_EXP'' (optional) (default ''PLAIN'')
+                              * **pattern** (`str`) -- Topic name pattern to
                                 match
 
     :arg dict skip-vote: map of build outcomes for which Jenkins must skip
@@ -195,6 +337,9 @@ def gerrit(parser, xml_parent, data):
         (default false)
     :arg str dynamic-trigger-url: if you specify this option, the Gerrit
         trigger configuration will be fetched from there on a regular interval
+    :arg bool trigger-for-unreviewed-patches: trigger patchset-created events
+        for changes that were uploaded while connection to Gerrit was down
+        (default false). Requires Gerrit Trigger Plugin version >= 2.11.0
     :arg str custom-url: Custom URL for a message sent to Gerrit. Build
         details URL will be used if empty. (default '')
     :arg str server-name: Name of the server to trigger on, or ''__ANY__'' to
@@ -209,14 +354,15 @@ def gerrit(parser, xml_parent, data):
 
     Until version 0.4.0 of Jenkins Job Builder, camelCase keys were used to
     configure Gerrit Trigger Plugin, instead of hyphenated-keys.  While still
-    supported, camedCase keys are deprecated and should not be used.
+    supported, camedCase keys are deprecated and should not be used. Support
+    for this will be removed after 1.0.0 is released.
 
     Example:
 
     .. literalinclude:: /../../tests/triggers/fixtures/gerrit004.yaml
-    """
+       :language: yaml
 
-    logger = logging.getLogger("%s:gerrit" % __name__)
+    """
 
     gerrit_handle_legacy_configuration(data)
 
@@ -270,6 +416,19 @@ def gerrit(parser, xml_parent, data):
                 XML.SubElement(fp_tag, 'compareType').text = \
                     file_path.get('compare-type', 'PLAIN')
                 XML.SubElement(fp_tag, 'pattern').text = file_path['pattern']
+
+        topics = project.get('topics', [])
+        if topics:
+            topics_tag = XML.SubElement(gproj, 'topics')
+            for topic in topics:
+                topic_tag = XML.SubElement(topics_tag,
+                                           'com.sonyericsson.hudson.plugins.'
+                                           'gerrit.trigger.hudsontrigger.data.'
+                                           'Topic')
+                XML.SubElement(topic_tag, 'compareType').text = \
+                    topic.get('compare-type', 'PLAIN')
+                XML.SubElement(topic_tag, 'pattern').text = topic['pattern']
+
     build_gerrit_skip_votes(gtrig, data)
     XML.SubElement(gtrig, 'silentMode').text = str(
         data.get('silent', False)).lower()
@@ -281,6 +440,8 @@ def gerrit(parser, xml_parent, data):
         data.get('dynamic-trigger-enabled', False))
     XML.SubElement(gtrig, 'triggerConfigURL').text = str(
         data.get('dynamic-trigger-url', ''))
+    XML.SubElement(gtrig, 'allowTriggeringUnreviewedPatches').text = str(
+        data.get('trigger-for-unreviewed-patches', False)).lower()
     build_gerrit_triggers(gtrig, data)
     override = str(data.get('override-votes', False)).lower()
     if override == 'true':
@@ -304,6 +465,8 @@ def gerrit(parser, xml_parent, data):
         data.get('successful-message', ''))
     XML.SubElement(gtrig, 'buildUnstableMessage').text = str(
         data.get('unstable-message', ''))
+    XML.SubElement(gtrig, 'buildNotBuiltMessage').text = str(
+        data.get('notbuilt-message', ''))
     XML.SubElement(gtrig, 'customUrl').text = str(data.get('custom-url', ''))
     XML.SubElement(gtrig, 'serverName').text = str(
         data.get('server-name', '__ANY__'))
@@ -323,6 +486,123 @@ def pollscm(parser, xml_parent, data):
 
     scmtrig = XML.SubElement(xml_parent, 'hudson.triggers.SCMTrigger')
     XML.SubElement(scmtrig, 'spec').text = data
+
+
+def build_pollurl_content_type(xml_parent, entries, prefix,
+                               collection_name, element_name):
+    namespace = 'org.jenkinsci.plugins.urltrigger.content'
+    content_type = XML.SubElement(
+        xml_parent, '{0}.{1}ContentType'.format(namespace, prefix))
+    if entries:
+        collection = XML.SubElement(content_type, collection_name)
+        for entry in entries:
+            content_entry = XML.SubElement(
+                collection, '{0}.{1}ContentEntry'.format(namespace, prefix))
+            XML.SubElement(content_entry, element_name).text = entry
+
+
+def pollurl(parser, xml_parent, data):
+    """yaml: pollurl
+    Trigger when the HTTP response from a URL changes.
+    Requires the Jenkins `URLTrigger Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/URLTrigger+Plugin>`_
+
+    :arg string cron: cron syntax of when to run (default '')
+    :arg string polling-node: Restrict where the polling should run.
+                              (optional)
+    :arg list urls: List of URLs to monitor
+
+      :URL: * **url** (`str`) -- URL to monitor for changes (required)
+            * **proxy** (`bool`) -- Activate the Jenkins proxy (default false)
+            * **timeout** (`int`) -- Connect/read timeout in seconds
+              (default 300)
+            * **username** (`string`) -- User name for basic authentication
+              (optional)
+            * **password** (`string`) -- Password for basic authentication
+              (optional)
+            * **check-status** (`int`) -- Check for a specific HTTP status
+              code (optional)
+            * **check-etag** (`bool`) -- Check the HTTP ETag for changes
+              (default false)
+            * **check-date** (`bool`) -- Check the last modification date of
+              the URL (default false)
+            * **check-content** (`list`) -- List of content type changes to
+              monitor
+
+              :Content Type: * **simple** (`bool`) -- Trigger on any change to
+                               the content of the URL (default false)
+                             * **json** (`list`) -- Trigger on any change to
+                               the listed JSON paths
+                             * **text** (`list`) -- Trigger on any change to
+                               the listed regular expressions
+                             * **xml** (`list`) -- Trigger on any change to
+                               the listed XPath expressions
+
+    Example:
+
+    .. literalinclude:: /../../tests/triggers/fixtures/pollurl001.yaml
+    """
+
+    valid_content_types = {
+        'simple': ['Simple', '', '', []],
+        'json': ['JSON', 'jsonPaths', 'jsonPath', None],
+        'text': ['TEXT', 'regExElements', 'regEx', None],
+        'xml': ['XML', 'xPaths', 'xPath', None]
+    }
+    urltrig = XML.SubElement(xml_parent,
+                             'org.jenkinsci.plugins.urltrigger.URLTrigger')
+    node = data.get('polling-node')
+    XML.SubElement(urltrig, 'spec').text = data.get('cron', '')
+    XML.SubElement(urltrig, 'labelRestriction').text = str(bool(node)).lower()
+    if node:
+        XML.SubElement(urltrig, 'triggerLabel').text = node
+    entries = XML.SubElement(urltrig, 'entries')
+    urls = data.get('urls', [])
+    if not urls:
+        raise JenkinsJobsException('At least one url must be provided')
+    for url in urls:
+        entry = XML.SubElement(entries,
+                               'org.jenkinsci.plugins.urltrigger.'
+                               'URLTriggerEntry')
+        XML.SubElement(entry, 'url').text = url['url']
+        XML.SubElement(entry, 'proxyActivated').text = \
+            str(url.get('proxy', False)).lower()
+        if 'username' in url:
+            XML.SubElement(entry, 'username').text = url['username']
+        if 'password' in url:
+            XML.SubElement(entry, 'password').text = url['password']
+        if 'check-status' in url:
+            XML.SubElement(entry, 'checkStatus').text = 'true'
+            XML.SubElement(entry, 'statusCode').text = \
+                str(url.get('check-status'))
+        else:
+            XML.SubElement(entry, 'checkStatus').text = 'false'
+            XML.SubElement(entry, 'statusCode').text = '200'
+        XML.SubElement(entry, 'timeout').text = \
+            str(url.get('timeout', 300))
+        XML.SubElement(entry, 'checkETag').text = \
+            str(url.get('check-etag', False)).lower()
+        XML.SubElement(entry, 'checkLastModificationDate').text = \
+            str(url.get('check-date', False)).lower()
+        check_content = url.get('check-content', [])
+        XML.SubElement(entry, 'inspectingContent').text = \
+            str(bool(check_content)).lower()
+        content_types = XML.SubElement(entry, 'contentTypes')
+        for entry in check_content:
+            type_name = next(iter(entry.keys()))
+            if type_name not in valid_content_types:
+                raise JenkinsJobsException('check-content must be one of : %s'
+                                           % ', '.join(valid_content_types.
+                                                       keys()))
+
+            content_type = valid_content_types.get(type_name)
+            if entry[type_name]:
+                sub_entries = content_type[3]
+                if sub_entries is None:
+                    sub_entries = entry[type_name]
+                build_pollurl_content_type(content_types,
+                                           sub_entries,
+                                           *content_type[0:3])
 
 
 def timed(parser, xml_parent, data):
@@ -403,6 +683,39 @@ def github_pull_request(parser, xml_parent, data):
         data.get('auto-close-on-fail', False)).lower()
 
 
+def gitlab_merge_request(parser, xml_parent, data):
+    """yaml: gitlab-merge-request
+    Build merge requests in gitlab and report results.
+    Requires the Jenkins `Gitlab MergeRequest Builder Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/
+    Gitlab+Merge+Request+Builder+Plugin>`_
+
+    :arg string cron: cron syntax of when to run (required)
+    :arg string project-path: gitlab-relative path to project (required)
+
+    Example:
+
+    .. literalinclude:: \
+        /../../tests/triggers/fixtures/gitlab-merge-request.yaml
+    """
+    ghprb = XML.SubElement(xml_parent, 'org.jenkinsci.plugins.gitlab.'
+                           'GitlabBuildTrigger')
+    if not data.get('cron', None):
+        raise jenkins_jobs.errors.JenkinsJobsException(
+            'gitlab-merge-request is missing "cron"')
+    if not data.get('project-path', None):
+        raise jenkins_jobs.errors.JenkinsJobsException(
+            'gitlab-merge-request is missing "project-path"')
+
+    # Because of a design limitation in the GitlabBuildTrigger Jenkins plugin
+    # both 'spec' and '__cron' have to be set to the same value to have them
+    # take effect. Also, cron and projectPath are prefixed with underscores
+    # in the plugin, but spec is not.
+    XML.SubElement(ghprb, 'spec').text = data.get('cron')
+    XML.SubElement(ghprb, '__cron').text = data.get('cron')
+    XML.SubElement(ghprb, '__projectPath').text = data.get('project-path')
+
+
 def build_result(parser, xml_parent, data):
     """yaml: build-result
     Configure jobB to monitor jobA build result. A build is scheduled if there
@@ -468,6 +781,52 @@ def build_result(parser, xml_parent, data):
                                            'plugins.buildresulttrigger.model.'
                                            'CheckedResult')
             XML.SubElement(model_checked, 'checked').text = result_dict[result]
+
+
+def reverse(parser, xml_parent, data):
+    """yaml: reverse
+    This trigger can be configured in the UI using the checkbox with the
+    following text: 'Build after other projects are built'.
+
+    Set up a trigger so that when some other projects finish building, a new
+    build is scheduled for this project. This is convenient for running an
+    extensive test after a build is complete, for example.
+
+    This configuration complements the "Build other projects" section in the
+    "Post-build Actions" of an upstream project, but is preferable when you
+    want to configure the downstream project.
+
+    :arg str jobs: List (comma separated) of jobs to watch.
+    :arg str result: Build results to monitor for between the following
+      options: success, unstable and failure. (default 'success').
+
+    Example:
+
+    .. literalinclude:: /../../tests/triggers/fixtures/reverse.yaml
+    """
+    reserveBuildTrigger = XML.SubElement(
+        xml_parent, 'jenkins.triggers.ReverseBuildTrigger')
+
+    supported_thresholds = ['SUCCESS', 'UNSTABLE', 'FAILURE']
+
+    XML.SubElement(reserveBuildTrigger, 'spec').text = ''
+    XML.SubElement(reserveBuildTrigger, 'upstreamProjects').text = \
+        data.get('jobs')
+
+    threshold = XML.SubElement(reserveBuildTrigger, 'threshold')
+    result = data.get('result').upper()
+    if result not in supported_thresholds:
+        raise jenkins_jobs.errors.JenkinsJobsException(
+            "Choice should be one of the following options: %s." %
+            ", ".join(supported_thresholds))
+    XML.SubElement(threshold, 'name').text = \
+        hudson_model.THRESHOLDS[result]['name']
+    XML.SubElement(threshold, 'ordinal').text = \
+        hudson_model.THRESHOLDS[result]['ordinal']
+    XML.SubElement(threshold, 'color').text = \
+        hudson_model.THRESHOLDS[result]['color']
+    XML.SubElement(threshold, 'completeBuild').text = \
+        str(hudson_model.THRESHOLDS[result]['complete']).lower()
 
 
 def script(parser, xml_parent, data):

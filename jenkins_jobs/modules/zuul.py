@@ -13,7 +13,14 @@
 # under the License.
 
 """
-The Zuul module adds triggers that configure jobs for use with Zuul_.
+The Zuul module adds triggers that configure jobs for use with Zuul_. It
+essentially adds the jobs parameters `expected by Zuul`_.
+
+With Zuul version 2.0 and later, this is optional. The jobs are
+triggered via the Jenkins Gearman plugin which passes the parameters
+internally.  You might still want to explicitly define parameters to
+retain the possibility of triggering jobs manually via the Jenkins web
+interface (build with parameters).
 
 To change the Zuul notification URL, set a global default::
 
@@ -24,12 +31,21 @@ To change the Zuul notification URL, set a global default::
 The above URL is the default.
 
 .. _Zuul: http://ci.openstack.org/zuul/
+.. _expected by Zuul: \
+http://ci.openstack.org/zuul/launchers.html#zuul-parameters
 """
+
+import itertools
 
 
 def zuul():
     """yaml: zuul
     Configure this job to be triggered by Zuul.
+
+    Adds parameters describing the change triggering the build such as the
+    branch name, change number and patchset.
+
+    See parameters `expected by Zuul`_.
 
     Example::
 
@@ -41,6 +57,12 @@ def zuul():
 def zuul_post():
     """yaml: zuul-post
     Configure this post-merge job to be triggered by Zuul.
+
+    Adds parameters describing the reference update triggering the build, which
+    are the previous and next revisions in full (40 hexadecimal sha1) and short
+    form.
+
+    See parameters `expected by Zuul`_.
 
     Example::
 
@@ -132,8 +154,8 @@ class Zuul(jenkins_jobs.modules.base.Base):
 
     def handle_data(self, parser):
         changed = False
-        jobs = (parser.data.get('job', {}).values() +
-                parser.data.get('job-template', {}).values())
+        jobs = itertools.chain(parser.data.get('job', {}).values(),
+                               parser.data.get('job-template', {}).values())
         for job in jobs:
             triggers = job.get('triggers')
             if not triggers:
@@ -149,13 +171,13 @@ class Zuul(jenkins_jobs.modules.base.Base):
             # This isn't a good pattern, and somewhat violates the
             # spirit of the global defaults, but Zuul is working on
             # a better design that should obviate the need for most
-            # of this module, so this gets it doen with minimal
+            # of this module, so this gets it done with minimal
             # intrusion to the rest of JJB.
             if parser.data.get('defaults', {}).get('global'):
                 url = parser.data['defaults']['global'].get(
                     'zuul-url', DEFAULT_URL)
-            notifications = [{'http': {'url': url}}]
-            job['notifications'].extend(notifications)
+                notifications = [{'http': {'url': url}}]
+                job['notifications'].extend(notifications)
             if 'zuul' in job.get('triggers', []):
                 job['parameters'].extend(ZUUL_PARAMETERS)
                 job['triggers'].remove('zuul')

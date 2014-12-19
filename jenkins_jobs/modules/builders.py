@@ -183,6 +183,30 @@ def copyartifact(parser, xml_parent, data):
         XML.SubElement(selector, 'parameterName').text = data['param']
 
 
+def change_assembly_version(parser, xml_parent, data):
+    """yaml: change-assembly-version
+    Change the assembly version.
+    Requires the Jenkins `Change Assembly Version.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Change+Assembly+Version>`_
+
+    :arg str version: Set the new version number for replace (default 1.0.0)
+    :arg str assemblyFile: The file name to search (default AssemblyInfo.cs)
+
+    Example:
+
+    .. literalinclude:: \
+    /../../tests/builders/fixtures/changeassemblyversion001.yaml
+       :language: yaml
+    """
+
+    cav_builder_tag = 'org.jenkinsci.plugins.changeassemblyversion.' \
+        'ChangeAssemblyVersion'
+    cav = XML.SubElement(xml_parent, cav_builder_tag)
+    XML.SubElement(cav, 'task').text = data.get('version', '1.0.0')
+    XML.SubElement(cav, 'assemblyFile').text = str(
+        data.get('assembly-file', 'AssemblyInfo.cs'))
+
+
 def ant(parser, xml_parent, data):
     """yaml: ant
     Execute an ant target.  Requires the Jenkins `Ant Plugin.
@@ -212,7 +236,7 @@ def ant(parser, xml_parent, data):
     :arg str buildfile: the path to the ANT build file.
     :arg list properties: Passed to ant script using -Dkey=value (optional)
     :arg str ant-name: the name of the ant installation,
-        defaults to 'default' (optional)
+        (default 'default') (optional)
     :arg str java-opts: java options for ant, can have multiples,
         must be in quotes (optional)
 
@@ -227,7 +251,7 @@ def ant(parser, xml_parent, data):
     if type(data) is str:
         # Support for short form: -ant: "target"
         data = {'targets': data}
-    for setting, value in sorted(data.iteritems()):
+    for setting, value in sorted(data.items()):
         if setting == 'targets':
             targets = XML.SubElement(ant, 'targets')
             targets.text = value
@@ -262,6 +286,9 @@ def trigger_builds(parser, xml_parent, data):
       key/value pairs to be passed to the job (optional)
     :arg str property-file:
       Pass properties from file to the other job (optional)
+    :arg bool property-file-fail-on-missing:
+      Don't trigger if any files are missing (optional)
+      (default true)
     :arg bool current-parameters: Whether to include the
       parameters passed to the current build to the
       triggered job.
@@ -271,10 +298,44 @@ def trigger_builds(parser, xml_parent, data):
       to finish or not (default false)
     :arg bool same-node: Use the same node for the triggered builds that was
       used for this build (optional)
+    :arg list parameter-factories: list of parameter factories
 
-    Example:
+      :Factory: * **factory** (`str`) **filebuild** -- For every property file,
+                  invoke one build
+                * **file-pattern** (`str`) -- File wildcard pattern
+                * **no-files-found-action** (`str`) -- Action to perform when
+                  no files found  (optional) ['FAIL', 'SKIP', 'NOPARMS']
+                  (default 'SKIP')
+
+      :Factory: * **factory** (`str`) **binaryfile** -- For every matching
+                  file, invoke one build
+                * **file-pattern** (`str`) -- Artifact ID of the artifact
+                * **no-files-found-action** (`str`) -- Action to perform when
+                  no files found  (optional) ['FAIL', 'SKIP', 'NOPARMS']
+                  (default 'SKIP')
+
+      :Factory: * **factory** (`str`) **counterbuild** -- Invoke i=0...N builds
+                * **from** (`int`) -- Artifact ID of the artifact
+                * **to** (`int`) -- Version of the artifact
+                * **step** (`int`) -- Classifier of the artifact
+                * **parameters** (`str`) -- KEY=value pairs, one per line
+                  (default '')
+                * **validation-fail** (`str`) -- Action to perform when
+                  stepping validation fails  (optional)
+                  ['FAIL', 'SKIP', 'NOPARMS']
+                  (default 'FAIL')
+
+    Examples:
+
+    Basic usage.
 
     .. literalinclude:: /../../tests/builders/fixtures/trigger-builds001.yaml
+       :language: yaml
+
+    Example with all supported parameter factories.
+
+    .. literalinclude:: \
+    /../../tests/builders/fixtures/trigger-builds-configfactory-multi.yaml
        :language: yaml
     """
     tbuilder = XML.SubElement(xml_parent,
@@ -307,8 +368,11 @@ def trigger_builds(parser, xml_parent, data):
                                     'FileBuildParameters')
             propertiesFile = XML.SubElement(params, 'propertiesFile')
             propertiesFile.text = project_def['property-file']
-            failOnMissing = XML.SubElement(params, 'failTriggerOnMissing')
-            failOnMissing.text = 'true'
+            failTriggerOnMissing = XML.SubElement(params,
+                                                  'failTriggerOnMissing')
+            failTriggerOnMissing.text = str(project_def.get(
+                'property-file-fail-on-missing', True)).lower()
+
         if 'predefined-parameters' in project_def:
             params = XML.SubElement(tconfigs,
                                     'hudson.plugins.parameterizedtrigger.'
@@ -317,6 +381,67 @@ def trigger_builds(parser, xml_parent, data):
             properties.text = project_def['predefined-parameters']
         if(len(list(tconfigs)) == 0):
             tconfigs.set('class', 'java.util.Collections$EmptyList')
+
+        if 'parameter-factories' in project_def:
+            fconfigs = XML.SubElement(tconfig, 'configFactories')
+
+            supported_factories = ['filebuild', 'binaryfile', 'counterbuild']
+            supported_actions = ['SKIP', 'NOPARMS', 'FAIL']
+            for factory in project_def['parameter-factories']:
+
+                if factory['factory'] not in supported_factories:
+                    raise JenkinsJobsException("factory must be one of %s" %
+                                               ", ".join(supported_factories))
+
+                if factory['factory'] == 'filebuild':
+                    params = XML.SubElement(
+                        fconfigs,
+                        'hudson.plugins.parameterizedtrigger.'
+                        'FileBuildParameterFactory')
+                if factory['factory'] == 'binaryfile':
+                    params = XML.SubElement(
+                        fconfigs,
+                        'hudson.plugins.parameterizedtrigger.'
+                        'BinaryFileParameterFactory')
+                    parameterName = XML.SubElement(params, 'parameterName')
+                    parameterName.text = factory['parameter-name']
+                if (factory['factory'] == 'filebuild' or
+                    factory['factory'] == 'binaryfile'):
+                    filePattern = XML.SubElement(params, 'filePattern')
+                    filePattern.text = factory['file-pattern']
+                    noFilesFoundAction = XML.SubElement(
+                        params,
+                        'noFilesFoundAction')
+                    noFilesFoundActionValue = str(factory.get(
+                        'no-files-found-action', 'SKIP'))
+                    if noFilesFoundActionValue not in supported_actions:
+                        raise JenkinsJobsException(
+                            "no-files-found-action must be one of %s" %
+                            ", ".join(supported_actions))
+                    noFilesFoundAction.text = noFilesFoundActionValue
+                if factory['factory'] == 'counterbuild':
+                    params = XML.SubElement(
+                        fconfigs,
+                        'hudson.plugins.parameterizedtrigger.'
+                        'CounterBuildParameterFactory')
+                    fromProperty = XML.SubElement(params, 'from')
+                    fromProperty.text = str(factory['from'])
+                    toProperty = XML.SubElement(params, 'to')
+                    toProperty.text = str(factory['to'])
+                    stepProperty = XML.SubElement(params, 'step')
+                    stepProperty.text = str(factory['step'])
+                    paramExpr = XML.SubElement(params, 'paramExpr')
+                    paramExpr.text = str(factory.get(
+                        'parameters', ''))
+                    validationFail = XML.SubElement(params, 'validationFail')
+                    validationFailValue = str(factory.get(
+                        'validation-fail', 'FAIL'))
+                    if validationFailValue not in supported_actions:
+                        raise JenkinsJobsException(
+                            "validation-fail action must be one of %s" %
+                            ", ".join(supported_actions))
+                    validationFail.text = validationFailValue
+
         projects = XML.SubElement(tconfig, 'projects')
         projects.text = project_def['project']
         condition = XML.SubElement(tconfig, 'condition')
@@ -383,6 +508,8 @@ def inject(parser, xml_parent, data):
 
     :arg str properties-file: the name of the property file (optional)
     :arg str properties-content: the properties content (optional)
+    :arg str script-file: the name of a script file to run (optional)
+    :arg str script-content: the script content (optional)
 
     Example:
 
@@ -395,6 +522,10 @@ def inject(parser, xml_parent, data):
         info, 'propertiesFilePath', data.get('properties-file'))
     jenkins_jobs.modules.base.add_nonblank_xml_subelement(
         info, 'propertiesContent', data.get('properties-content'))
+    jenkins_jobs.modules.base.add_nonblank_xml_subelement(
+        info, 'scriptFilePath', data.get('script-file'))
+    jenkins_jobs.modules.base.add_nonblank_xml_subelement(
+        info, 'scriptContent', data.get('script-content'))
 
 
 def artifact_resolver(parser, xml_parent, data):
@@ -494,6 +625,104 @@ def gradle(parser, xml_parent, data):
         'use-root-dir', False)).lower()
 
 
+def _groovy_common_scriptSource(data):
+    """Helper function to generate the XML element common to groovy builders
+    """
+
+    scriptSource = XML.Element("scriptSource")
+    if 'command' in data and 'file' in data:
+        raise JenkinsJobsException("Use just one of 'command' or 'file'")
+
+    if 'command' in data:
+        command = XML.SubElement(scriptSource, 'command')
+        command.text = str(data['command'])
+        scriptSource.set('class', 'hudson.plugins.groovy.StringScriptSource')
+    elif 'file' in data:
+        scriptFile = XML.SubElement(scriptSource, 'scriptFile')
+        scriptFile.text = str(data['file'])
+        scriptSource.set('class', 'hudson.plugins.groovy.FileScriptSource')
+    else:
+        raise JenkinsJobsException("A groovy command or file is required")
+
+    return scriptSource
+
+
+def groovy(parser, xml_parent, data):
+    """yaml: groovy
+    Execute a groovy script or command.
+    Requires the Jenkins `Groovy Plugin
+    <https://wiki.jenkins-ci.org/display/JENKINS/Groovy+plugin>`_
+
+    :arg str file: Groovy file to run.
+      (Alternative: you can chose a command instead)
+    :arg str command: Groovy command to run.
+      (Alternative: you can chose a script file instead)
+    :arg str version: Groovy version to use. (default '(Default)')
+    :arg str parameters: Parameters for the Groovy executable. (optional)
+    :arg str script-parameters: These parameters will be passed to the script.
+      (optional)
+    :arg str properties: Instead of passing properties using the -D parameter
+      you can define them here. (optional)
+    :arg str java-opts: Direct access to JAVA_OPTS. Properties allows only
+      -D properties, while sometimes also other properties like -XX need to
+      be setup. It can be done here. This line is appended at the end of
+      JAVA_OPTS string. (optional)
+    :arg str class-path: Specify script classpath here. Each line is one
+      class path item. (optional)
+
+    Examples:
+
+    .. literalinclude:: ../../tests/builders/fixtures/groovy001.yaml
+       :language: yaml
+    .. literalinclude:: ../../tests/builders/fixtures/groovy002.yaml
+       :language: yaml
+    """
+
+    root_tag = 'hudson.plugins.groovy.Groovy'
+    groovy = XML.SubElement(xml_parent, root_tag)
+
+    groovy.append(_groovy_common_scriptSource(data))
+    XML.SubElement(groovy, 'groovyName').text = \
+        str(data.get('version', "(Default)"))
+    XML.SubElement(groovy, 'parameters').text = str(data.get('parameters', ""))
+    XML.SubElement(groovy, 'scriptParameters').text = \
+        str(data.get('script-parameters', ""))
+    XML.SubElement(groovy, 'properties').text = str(data.get('properties', ""))
+    XML.SubElement(groovy, 'javaOpts').text = str(data.get('java-opts', ""))
+    XML.SubElement(groovy, 'classPath').text = str(data.get('class-path', ""))
+
+
+def system_groovy(parser, xml_parent, data):
+    """yaml: system-groovy
+    Execute a system groovy script or command.
+    Requires the Jenkins `Groovy Plugin
+    <https://wiki.jenkins-ci.org/display/JENKINS/Groovy+plugin>`_
+
+    :arg str file: Groovy file to run.
+      (Alternative: you can chose a command instead)
+    :arg str command: Groovy command to run.
+      (Alternative: you can chose a script file instead)
+    :arg str bindings: Define variable bindings (in the properties file
+      format). Specified variables can be addressed from the script. (optional)
+    :arg str class-path: Specify script classpath here. Each line is one class
+      path item. (optional)
+
+    Examples:
+
+    .. literalinclude:: ../../tests/builders/fixtures/system-groovy001.yaml
+       :language: yaml
+    .. literalinclude:: ../../tests/builders/fixtures/system-groovy002.yaml
+       :language: yaml
+    """
+
+    root_tag = 'hudson.plugins.groovy.SystemGroovy'
+    sysgroovy = XML.SubElement(xml_parent, root_tag)
+    sysgroovy.append(_groovy_common_scriptSource(data))
+    XML.SubElement(sysgroovy, 'bindings').text = str(data.get('bindings', ""))
+    XML.SubElement(sysgroovy, 'classpath').text = \
+        str(data.get('class-path', ""))
+
+
 def batch(parser, xml_parent, data):
     """yaml: batch
     Execute a batch command.
@@ -509,6 +738,22 @@ def batch(parser, xml_parent, data):
     XML.SubElement(batch, 'command').text = data
 
 
+def powershell(parser, xml_parent, data):
+    """yaml: powershell
+    Execute a powershell command. Requires the `Powershell Plugin
+    <https://wiki.jenkins-ci.org/display/JENKINS/PowerShell+Plugin>`_.
+
+    :Parameter: the powershell command to execute
+
+    Example:
+
+    .. literalinclude:: ../../tests/builders/fixtures/powershell.yaml
+       :language: yaml
+    """
+    ps = XML.SubElement(xml_parent, 'hudson.plugins.powershell.PowerShell')
+    XML.SubElement(ps, 'command').text = data
+
+
 def msbuild(parser, xml_parent, data):
     """yaml: msbuild
     Build .NET project using msbuild.  Requires the `Jenkins MSBuild Plugin
@@ -519,9 +764,9 @@ def msbuild(parser, xml_parent, data):
     :arg str solution-file: location of the solution file to build
     :arg str extra-parameters: extra parameters to pass to msbuild (optional)
     :arg bool pass-build-variables: should build variables be passed
-      to msbuild (defaults to true)
+      to msbuild (default true)
     :arg bool continue-on-build-failure: should the build continue if
-      msbuild returns an error (defaults to false)
+      msbuild returns an error (default false)
 
     Example:
 
@@ -577,6 +822,12 @@ def conditional_step(parser, xml_parent, data):
                        representation of true
 
                          :condition-expression: Expression to expand
+    strings-match      Run the step if two strings match
+
+                         :condition-string1: First string
+                         :condition-string2: Second string
+                         :condition-case-insensitive: Case insensitive
+                           defaults to false
     current-status     Run the build step if the current build status is
                        within the configured range
 
@@ -621,6 +872,14 @@ def conditional_step(parser, xml_parent, data):
                      'org.jenkins_ci.plugins.run_condition.core.'
                      'BooleanCondition')
             XML.SubElement(ctag, "token").text = cdata['condition-expression']
+        elif kind == "strings-match":
+            ctag.set('class',
+                     'org.jenkins_ci.plugins.run_condition.core.'
+                     'StringsMatchCondition')
+            XML.SubElement(ctag, "arg1").text = cdata['condition-string1']
+            XML.SubElement(ctag, "arg2").text = cdata['condition-string2']
+            XML.SubElement(ctag, "ignoreCase").text = str(cdata.get(
+                'condition-case-insensitive', False)).lower()
         elif kind == "current-status":
             ctag.set('class',
                      'org.jenkins_ci.plugins.run_condition.core.'
@@ -727,9 +986,9 @@ def maven_target(parser, xml_parent, data):
 
     :arg str goals: Goals to execute
     :arg str properties: Properties for maven, can have multiples
-    :arg str pom: Location of pom.xml (defaults to pom.xml)
+    :arg str pom: Location of pom.xml (default 'pom.xml')
     :arg bool private-repository: Use private maven repository for this
-      job (defaults to false)
+      job (default false)
     :arg str maven-version: Installation of maven which should be used
       (optional)
     :arg str java-opts: java options for maven, can have multiples,
@@ -803,10 +1062,13 @@ def multijob(parser, xml_parent, data):
                   to the other job (optional)
                 * **predefined-parameters** (`str`) -- Pass predefined
                   parameters to the other job (optional)
+                * **kill-phase-on** (`str`) -- Stop the phase execution
+                  on specific job status. Can be 'FAILURE', 'UNSTABLE',
+                  'NEVER'. (optional)
 
     Example:
 
-    .. literalinclude:: ../../tests/builders/fixtures/multibuild.yaml
+    .. literalinclude:: /../../tests/builders/fixtures/multibuild.yaml
        :language: yaml
     """
     builder = XML.SubElement(xml_parent, 'com.tikal.jenkins.plugins.multijob.'
@@ -817,6 +1079,8 @@ def multijob(parser, xml_parent, data):
     XML.SubElement(builder, 'continuationCondition').text = condition
 
     phaseJobs = XML.SubElement(builder, 'phaseJobs')
+
+    kill_status_list = ('FAILURE', 'UNSTABLE', 'NEVER')
 
     for project in data.get('projects', []):
         phaseJob = XML.SubElement(phaseJobs, 'com.tikal.jenkins.plugins.'
@@ -869,6 +1133,19 @@ def multijob(parser, xml_parent, data):
                                    'PredefinedBuildParameters')
             properties = XML.SubElement(param, 'properties')
             properties.text = predefined_parameters
+
+        # Kill phase on job status
+        kill_status = project.get('kill-phase-on')
+        if kill_status is not None:
+            kill_status = kill_status.upper()
+            if kill_status not in kill_status_list:
+                raise JenkinsJobsException(
+                    'multijob kill-phase-on must be one of: %s'
+                    + ','.join(kill_status_list))
+            XML.SubElement(
+                phaseJob,
+                'killPhaseOnJobResultCondition'
+            ).text = kill_status
 
 
 def grails(parser, xml_parent, data):
@@ -1174,3 +1451,49 @@ def shining_panda(parser, xml_parent, data):
     XML.SubElement(t, 'command').text = data.get("command", "")
     ignore_exit_code = data.get('ignore-exit-code', False)
     XML.SubElement(t, 'ignoreExitCode').text = str(ignore_exit_code).lower()
+
+
+def managed_script(parser, xml_parent, data):
+    """yaml: managed-script
+    This step allows to reference and execute a centrally managed
+    script within your build. Requires the Jenkins `Managed Script Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Managed+Script+Plugin>`_
+
+    :arg str script-id: Id of script to execute (Required)
+    :arg str type: Type of managed file (default: script)
+
+        :type values:
+            * **batch**: Execute managed windows batch
+            * **script**: Execute managed script
+
+    :arg list args: Arguments to be passed to referenced script
+
+    Example:
+
+    .. literalinclude:: /../../tests/builders/fixtures/managed-script.yaml
+       :language: yaml
+
+    .. literalinclude:: /../../tests/builders/fixtures/managed-winbatch.yaml
+       :language: yaml
+    """
+    step_type = data.get('type', 'script').lower()
+    if step_type == 'script':
+        step = 'ScriptBuildStep'
+        script_tag = 'buildStepId'
+    elif step_type == 'batch':
+        step = 'WinBatchBuildStep'
+        script_tag = 'command'
+    else:
+        raise JenkinsJobsException("type entered is not valid must be "
+                                   "one of: script or batch")
+    ms = XML.SubElement(xml_parent,
+                        'org.jenkinsci.plugins.managedscripts.' + step)
+    try:
+        script_id = data['script-id']
+    except KeyError:
+        raise JenkinsJobsException("A script-id is required for "
+                                   "managed-script")
+    XML.SubElement(ms, script_tag).text = script_id
+    args = XML.SubElement(ms, 'buildStepArgs')
+    for arg in data.get('args', []):
+        XML.SubElement(args, 'string').text = arg

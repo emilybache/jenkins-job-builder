@@ -16,48 +16,12 @@
 # under the License.
 
 import os
-from ConfigParser import ConfigParser
 from testtools import TestCase
 from testscenarios.testcase import TestWithScenarios
-from tests.base import get_scenarios, BaseTestCase
-import doctest
-import testtools
-from jenkins_jobs.builder import YamlParser
+from tests.base import get_scenarios, SingleJobTestCase
 
 
-class TestCaseModuleYamlInclude(TestWithScenarios, TestCase, BaseTestCase):
+class TestCaseModuleYamlInclude(TestWithScenarios, TestCase,
+                                SingleJobTestCase):
     fixtures_path = os.path.join(os.path.dirname(__file__), 'fixtures')
     scenarios = get_scenarios(fixtures_path)
-
-    def test_yaml_snippet(self):
-        if not self.xml_filename or not self.yaml_filename:
-            return
-
-        xml_filepath = os.path.join(self.fixtures_path, self.xml_filename)
-        expected_xml = u"%s" % open(xml_filepath, 'r').read()
-
-        yaml_filepath = os.path.join(self.fixtures_path, self.yaml_filename)
-
-        if self.conf_filename:
-            config = ConfigParser()
-            conf_filepath = os.path.join(self.fixtures_path,
-                                         self.conf_filename)
-            config.readfp(open(conf_filepath))
-        else:
-            config = None
-        parser = YamlParser(config)
-        parser.parse(yaml_filepath)
-
-        # Generate the XML tree
-        parser.generateXML()
-
-        # Prettify generated XML
-        pretty_xml = parser.jobs[0].output()
-
-        self.assertThat(
-            pretty_xml,
-            testtools.matchers.DocTestMatches(expected_xml,
-                                              doctest.ELLIPSIS |
-                                              doctest.NORMALIZE_WHITESPACE |
-                                              doctest.REPORT_NDIFF)
-        )

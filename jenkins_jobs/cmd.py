@@ -14,25 +14,33 @@
 # under the License.
 
 import argparse
-import ConfigParser
+from six.moves import configparser, StringIO
 import logging
 import os
 import platform
 import sys
-import cStringIO
+import jenkins_jobs.version
 
 from jenkins_jobs.builder import Builder
 from jenkins_jobs.errors import JenkinsJobsException
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger()
 
 DEFAULT_CONF = """
 [job_builder]
 keep_descriptions=False
 ignore_cache=False
+recursive=False
+allow_duplicates=False
 
 [jenkins]
 url=http://localhost:8080/
 user=
 password=
+
+[hipchat]
+authtoken=dummy
 """
 
 
@@ -42,24 +50,35 @@ def confirm(question):
         sys.exit('Aborted')
 
 
-def main(argv=None):
-    # We default argv to None and assign to sys.argv[1:] below because having
-    # an argument default value be a mutable type in Python is a gotcha. See
-    # http://bit.ly/1o18Vff
-    if argv is None:
-        argv = sys.argv[1:]
+def recurse_path(root):
+    basepath = os.path.realpath(root)
+    pathlist = [basepath]
+
+    for root, dirs, files in os.walk(basepath, topdown=True):
+        pathlist.extend([os.path.join(root, path) for path in dirs])
+
+    return pathlist
+
+
+def create_parser():
 
     parser = argparse.ArgumentParser()
+    recursive_parser = argparse.ArgumentParser(add_help=False)
+    recursive_parser.add_argument('-r', '--recursive', action='store_true',
+                                  dest='recursive', default=False,
+                                  help='look for yaml files recursively')
     subparser = parser.add_subparsers(help='update, test or delete job',
                                       dest='command')
-    parser_update = subparser.add_parser('update')
-    parser_update.add_argument('path', help='path to YAML file or directory')
+    parser_update = subparser.add_parser('update', parents=[recursive_parser])
+    parser_update.add_argument('path', help='colon-separated list of paths to'
+                                            ' YAML files or directories')
     parser_update.add_argument('names', help='name(s) of job(s)', nargs='*')
     parser_update.add_argument('--delete-old', help='delete obsolete jobs',
                                action='store_true',
                                dest='delete_old', default=False,)
-    parser_test = subparser.add_parser('test')
-    parser_test.add_argument('path', help='path to YAML file or directory',
+    parser_test = subparser.add_parser('test', parents=[recursive_parser])
+    parser_test.add_argument('path', help='colon-separated list of paths to'
+                                          ' YAML files or directories',
                              nargs='?', default=sys.stdin)
     parser_test.add_argument('-o', dest='output_dir', default=sys.stdout,
                              help='path to output XML')
@@ -67,7 +86,8 @@ def main(argv=None):
     parser_delete = subparser.add_parser('delete')
     parser_delete.add_argument('name', help='name of job', nargs='+')
     parser_delete.add_argument('-p', '--path', default=None,
-                               help='path to YAML file or directory')
+                               help='colon-separated list of paths to'
+                                    ' YAML files or directories')
     subparser.add_parser('delete-all',
                          help='delete *ALL* jobs from Jenkins server, '
                          'including those not managed by Jenkins Job '
@@ -83,12 +103,35 @@ def main(argv=None):
     parser.add_argument(
         '--flush-cache', action='store_true', dest='flush_cache',
         default=False, help='flush all the cache entries before updating')
-    options = parser.parse_args(argv)
+    parser.add_argument('--version', dest='version', action='version',
+                        version=version(),
+                        help='show version')
 
-    options.log_level = getattr(logging, options.log_level.upper(),
-                                logging.INFO)
-    logging.basicConfig(level=options.log_level)
-    logger = logging.getLogger()
+    return parser
+
+
+def main(argv=None):
+
+    # We default argv to None and assign to sys.argv[1:] below because having
+    # an argument default value be a mutable type in Python is a gotcha. See
+    # http://bit.ly/1o18Vff
+    if argv is None:
+        argv = sys.argv[1:]
+
+    parser = create_parser()
+    options = parser.parse_args(argv)
+    if not options.command:
+        parser.error("Must specify a 'command' to be performed")
+    if (options.log_level is not None):
+        options.log_level = getattr(logging, options.log_level.upper(),
+                                    logger.getEffectiveLevel())
+        logger.setLevel(options.log_level)
+
+    config = setup_config_settings(options)
+    execute(options, config)
+
+
+def setup_config_settings(options):
 
     conf = '/etc/jenkins_jobs/jenkins_jobs.ini'
     if options.conf:
@@ -99,24 +142,24 @@ def main(argv=None):
                                  'jenkins_jobs.ini')
         if os.path.isfile(localconf):
             conf = localconf
-    config = ConfigParser.ConfigParser()
+    config = configparser.ConfigParser()
     ## Load default config always
-    config.readfp(cStringIO.StringIO(DEFAULT_CONF))
-    if options.command == 'test':
-        logger.debug("Not reading config for test output generation")
-    elif os.path.isfile(conf):
+    config.readfp(StringIO(DEFAULT_CONF))
+    if os.path.isfile(conf):
         logger.debug("Reading config from {0}".format(conf))
         conffp = open(conf, 'r')
         config.readfp(conffp)
+    elif options.command == 'test':
+        logger.debug("Not requiring config for test output generation")
     else:
         raise JenkinsJobsException(
             "A valid configuration file is required when not run as a test"
             "\n{0} is not a valid .ini file".format(conf))
 
-    execute(options, config, logger)
+    return config
 
 
-def execute(options, config, logger):
+def execute(options, config):
     logger.debug("Config: {0}".format(config))
 
     # check the ignore_cache setting: first from command line,
@@ -136,11 +179,11 @@ def execute(options, config, logger):
     # https://bugs.launchpad.net/openstack-ci/+bug/1259631
     try:
         user = config.get('jenkins', 'user')
-    except (TypeError, ConfigParser.NoOptionError):
+    except (TypeError, configparser.NoOptionError):
         user = None
     try:
         password = config.get('jenkins', 'password')
-    except (TypeError, ConfigParser.NoOptionError):
+    except (TypeError, configparser.NoOptionError):
         password = None
 
     builder = Builder(config.get('jenkins', 'url'),
@@ -150,17 +193,31 @@ def execute(options, config, logger):
                       ignore_cache=ignore_cache,
                       flush_cache=options.flush_cache)
 
-    if hasattr(options, 'path') and options.path == sys.stdin:
-        logger.debug("Input file is stdin")
-        if options.path.isatty():
-            key = 'CTRL+Z' if platform.system() == 'Windows' else 'CTRL+D'
-            logger.warn(
-                "Reading configuration from STDIN. Press %s to end input.",
-                key)
+    if getattr(options, 'path', None):
+        if options.path == sys.stdin:
+            logger.debug("Input file is stdin")
+            if options.path.isatty():
+                key = 'CTRL+Z' if platform.system() == 'Windows' else 'CTRL+D'
+                logger.warn(
+                    "Reading configuration from STDIN. Press %s to end input.",
+                    key)
+
+        # take list of paths
+        options.path = options.path.split(os.pathsep)
+
+        do_recurse = (getattr(options, 'recursive', False) or
+                      config.getboolean('job_builder', 'recursive'))
+
+        paths = []
+        for path in options.path:
+            if do_recurse and os.path.isdir(path):
+                paths.extend(recurse_path(path))
+            else:
+                paths.append(path)
+        options.path = paths
 
     if options.command == 'delete':
         for job in options.name:
-            logger.info("Deleting jobs in [{0}]".format(job))
             builder.delete_job(job, options.path)
     elif options.command == 'delete-all':
         confirm('Sure you want to delete *ALL* jobs from Jenkins server?\n'
@@ -176,6 +233,12 @@ def execute(options, config, logger):
     elif options.command == 'test':
         builder.update_job(options.path, options.name,
                            output=options.output_dir)
+
+
+def version():
+    return "Jenkins Job Builder version: %s" % \
+        jenkins_jobs.version.version_info.version_string()
+
 
 if __name__ == '__main__':
     sys.path.insert(0, '.')

@@ -18,14 +18,17 @@ The SCM module allows you to specify the source code location for the
 project.  It adds the ``scm`` attribute to the :ref:`Job` definition,
 which accepts any number of scm definitions.
 
-Note: Adding more than one scm definition requires the Jenkins `Multiple
-SCMs plugin.
-<https://wiki.jenkins-ci.org/display/JENKINS/Multiple+SCMs+Plugin>`_
-
 **Component**: scm
   :Macro: scm
   :Entry Point: jenkins_jobs.scm
 
+The scm module allows referencing multiple repositories in a Jenkins job.
+Note: Adding more than one scm definition requires the Jenkins `Multiple
+SCMs plugin.
+<https://wiki.jenkins-ci.org/display/JENKINS/Multiple+SCMs+Plugin>`_
+
+Example of multiple repositories in a single job:
+    .. literalinclude:: /../../tests/macros/scm/multi-scms001.yaml
 """
 
 
@@ -34,7 +37,7 @@ import jenkins_jobs.modules.base
 from jenkins_jobs.errors import JenkinsJobsException
 
 
-def git(self, xml_parent, data):
+def git(parser, xml_parent, data):
     """yaml: git
     Specifies the git SCM repository for this job.
     Requires the Jenkins `Git Plugin.
@@ -42,8 +45,9 @@ def git(self, xml_parent, data):
 
     :arg str url: URL of the git repository
     :arg str credentials-id: ID of credentials to use to connect (optional)
-    :arg str refspec: refspec to fetch
-    :arg str name: name to fetch
+    :arg str refspec: refspec to fetch (default '+refs/heads/\*:refs/remotes/\
+remoteName/\*')
+    :arg str name: name to fetch (default 'origin')
     :arg list(str) remotes: list of remotes to set up (optional, only needed if
       multiple remotes need to be set up)
 
@@ -51,12 +55,12 @@ def git(self, xml_parent, data):
                  * **refspec** (`string`) - refspec to fetch (optional)
                  * **credentials-id** - ID of credentials to use to connect
                      (optional)
-    :arg list(str) branches: list of branch specifiers to build
+    :arg list(str) branches: list of branch specifiers to build (default '**')
     :arg list(str) excluded-users: list of users to ignore revisions from
-      when polling for changes. (if polling is enabled)
-    :arg list(str) included-regions: list of file/folders to include
-    :arg list(str) excluded-regions: list of file/folders to exclude
-    :arg str local-branch: Checkout/merge to local branch
+      when polling for changes. (if polling is enabled, optional)
+    :arg list(str) included-regions: list of file/folders to include (optional)
+    :arg list(str) excluded-regions: list of file/folders to exclude (optional)
+    :arg str local-branch: Checkout/merge to local branch (optional)
     :arg dict merge:
         :merge:
             * **remote** (`string`) - name of repo that contains branch to
@@ -64,26 +68,45 @@ def git(self, xml_parent, data):
             * **branch** (`string`) - name of the branch to merge to
     :arg str basedir: location relative to the workspace root to clone to
              (default: workspace)
-    :arg bool skip-tag: Skip tagging
-    :arg bool shallow-clone: Perform shallow clone
-    :arg bool prune: Prune remote branches
-    :arg bool clean: Clean after checkout
-    :arg bool fastpoll: Use fast remote polling
-    :arg bool disable-submodules: Disable submodules
-    :arg bool recursive-submodules: Recursively update submodules
+    :arg bool skip-tag: Skip tagging (default false)
+    :arg bool shallow-clone: Perform shallow clone (default false)
+    :arg bool prune: Prune remote branches (default false)
+    :arg bool clean: Clean after checkout (default false)
+    :arg bool fastpoll: Use fast remote polling (default false)
+    :arg bool disable-submodules: Disable submodules (default false)
+    :arg bool recursive-submodules: Recursively update submodules (default
+      false)
     :arg bool use-author: Use author rather than committer in Jenkin's build
-      changeset
-    :arg str git-tool: The name of the Git installation to use
+      changeset (default false)
+    :arg str git-tool: The name of the Git installation to use (default
+      'Default')
     :arg str reference-repo: Path of the reference repo to use during clone
-    :arg str scm-name: The unique scm name for this Git SCM
-    :arg bool wipe-workspace: Wipe out workspace before build
+      (optional)
+    :arg str scm-name: The unique scm name for this Git SCM (optional)
+    :arg bool wipe-workspace: Wipe out workspace before build (default true)
+    :arg bool ignore-notify: Ignore notifyCommit URL accesses (default false)
     :arg str browser: what repository browser to use (default '(Auto)')
-    :arg str browser-url: url for the repository browser
-    :arg str browser-version: version of the repository browser (GitLab)
+    :arg str browser-url: url for the repository browser (required if browser
+      is not '(Auto)', no default)
+    :arg str browser-version: version of the repository browser (GitLab only,
+      default '0.0')
     :arg str project-name: project name in Gitblit and ViewGit repobrowser
+      (optional)
     :arg str choosing-strategy: Jenkins class for selecting what to build
-    :arg str git-config-name: Configure name for Git clone
-    :arg str git-config-email: Configure email for Git clone
+      (default 'default')
+    :arg str git-config-name: Configure name for Git clone (optional)
+    :arg str git-config-email: Configure email for Git clone (optional)
+
+
+    :extensions:
+        :arg dict changelog-against:
+            :changelog-against:
+                * **remote** (`string`) - name of repo that contains branch to
+                    create changelog against (default 'origin')
+                * **branch** (`string`) - name of the branch to create
+                    create changelog against (default 'master')
+
+        :arg str timeout: Timeout for git commands in minutes (optional)
 
     :browser values:
         :auto:
@@ -130,6 +153,7 @@ def git(self, xml_parent, data):
         ('skip-tag', 'skipTag', False),
         ('scm-name', 'scmName', ''),
         ("shallow-clone", "useShallowClone", False),
+        ("ignore-notify", "ignoreNotifyCommit", False),
     ]
 
     choosing_strategies = {
@@ -147,9 +171,9 @@ def git(self, xml_parent, data):
         data['remotes'] = [{data.get('name', 'origin'): data.copy()}]
     for remoteData in data['remotes']:
         huser = XML.SubElement(user, 'hudson.plugins.git.UserRemoteConfig')
-        remoteName = remoteData.keys()[0]
+        remoteName = next(iter(remoteData.keys()))
         XML.SubElement(huser, 'name').text = remoteName
-        remoteParams = remoteData.values()[0]
+        remoteParams = next(iter(remoteData.values()))
         if 'refspec' in remoteParams:
             refspec = remoteParams['refspec']
         else:
@@ -209,6 +233,21 @@ def git(self, xml_parent, data):
     if 'local-branch' in data:
         XML.SubElement(scm, 'localBranch').text = data['local-branch']
 
+    exts_node = XML.SubElement(scm, 'extensions')
+    if 'changelog-against' in data:
+        ext_name = 'hudson.plugins.git.extensions.impl.ChangelogToBranch'
+        ext = XML.SubElement(exts_node, ext_name)
+        opts = XML.SubElement(ext, 'options')
+        change_remote = data['changelog-against'].get('remote', 'origin')
+        change_branch = data['changelog-against'].get('branch', 'master')
+        XML.SubElement(opts, 'compareRemote').text = change_remote
+        XML.SubElement(opts, 'compareTarget').text = change_branch
+    if 'timeout' in data:
+        co = XML.SubElement(exts_node,
+                            'hudson.plugins.git.extensions.impl.'
+                            'CheckoutOption')
+        XML.SubElement(co, 'timeout').text = str(data['timeout'])
+
     browser = data.get('browser', 'auto')
     browserdict = {'auto': 'auto',
                    'bitbucketweb': 'BitbucketWeb',
@@ -240,7 +279,7 @@ def git(self, xml_parent, data):
                 data.get('browser-version', '0.0'))
 
 
-def repo(self, xml_parent, data):
+def repo(parser, xml_parent, data):
     """yaml: repo
     Specifies the repo SCM repository for this job.
     Requires the Jenkins `Repo Plugin.
@@ -306,20 +345,99 @@ def repo(self, xml_parent, data):
             xe.text = str(val)
 
 
-def svn(self, xml_parent, data):
+def store(parser, xml_parent, data):
+    """yaml: store
+    Specifies the Visualworks Smalltalk Store repository for this job.
+    Requires the Jenkins `Visualworks Smalltalk Store Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/
+    Visualworks+Smalltalk+Store+Plugin>`_
+
+    :arg str script: name of the Store script to run
+    :arg str repository: name of the Store repository
+    :arg str version-regex: regular expression that specifies which pundle
+             versions should be considered (optional)
+    :arg str minimum-blessing: minimum blessing level to consider (optional)
+    :arg str parcel-builder-file: name of the file to generate as input to
+             a later parcel building step (optional - if not specified, then
+             no parcel builder file will be generated)
+    :arg list pundles:
+
+        :(package or bundle): (`dict`): A package or bundle to check
+
+    Example:
+
+    .. literalinclude:: /../../tests/scm/fixtures/store001.yaml
+    """
+    namespace = 'org.jenkinsci.plugins.visualworks_store'
+    scm = XML.SubElement(xml_parent, 'scm',
+                         {'class': '{0}.StoreSCM'.format(namespace)})
+    if 'script' in data:
+        XML.SubElement(scm, 'scriptName').text = data['script']
+    else:
+        raise JenkinsJobsException("Must specify a script name")
+    if 'repository' in data:
+        XML.SubElement(scm, 'repositoryName').text = data['repository']
+    else:
+        raise JenkinsJobsException("Must specify a repository name")
+    pundle_specs = data.get('pundles', [])
+    if not pundle_specs:
+        raise JenkinsJobsException("At least one pundle must be specified")
+    valid_pundle_types = ['package', 'bundle']
+    pundles = XML.SubElement(scm, 'pundles')
+    for pundle_spec in pundle_specs:
+        pundle = XML.SubElement(pundles, '{0}.PundleSpec'.format(namespace))
+        pundle_type = next(iter(pundle_spec))
+        pundle_name = pundle_spec[pundle_type]
+        if pundle_type not in valid_pundle_types:
+            raise JenkinsJobsException(
+                'pundle type must be must be one of: '
+                + ', '.join(valid_pundle_types))
+        else:
+            XML.SubElement(pundle, 'name').text = pundle_name
+            XML.SubElement(pundle, 'pundleType').text = pundle_type.upper()
+    if 'version-regex' in data:
+        XML.SubElement(scm, 'versionRegex').text = data['version-regex']
+    if 'minimum-blessing' in data:
+        XML.SubElement(scm, 'minimumBlessingLevel').text = \
+            data['minimum-blessing']
+    if 'parcel-builder-file' in data:
+        XML.SubElement(scm, 'generateParcelBuilderInputFile').text = 'true'
+        XML.SubElement(scm, 'parcelBuilderInputFilename').text = \
+            data['parcel-builder-file']
+    else:
+        XML.SubElement(scm, 'generateParcelBuilderInputFile').text = 'false'
+
+
+def svn(parser, xml_parent, data):
     """yaml: svn
     Specifies the svn SCM repository for this job.
 
     :arg str url: URL of the svn repository
     :arg str basedir: location relative to the workspace root to checkout to
       (default '.')
+    :arg str credentials-id: optional argument to specify the ID of credentials
+      to use
     :arg str workspaceupdater: optional argument to specify
       how to update the workspace (default wipeworkspace)
+    :arg list(str) excluded-users: list of users to ignore revisions from
+      when polling for changes (if polling is enabled; parameter is optional)
+    :arg list(str) included-regions: list of file/folders to include
+      (optional)
+    :arg list(str) excluded-regions: list of file/folders to exclude (optional)
+    :arg list(str) excluded-commit-messages: list of commit messages to exclude
+      (optional)
+    :arg str exclusion-revprop-name: revision svn-property to ignore (optional)
+    :arg bool ignore-property-changes-on-directories: ignore svn-property only
+      changes of directories (default false)
+    :arg bool filter-changelog: If set Jenkins will apply the same inclusion
+      and exclusion patterns for displaying changelog entries as it does for
+      polling for changes (default false)
     :arg list repos: list of repositories to checkout (optional)
 
       :Repo: * **url** (`str`) -- URL for the repository
              * **basedir** (`str`) -- Location relative to the workspace
                                       root to checkout to (default '.')
+             * **credentials-id** - optional ID of credentials to use
 
     :workspaceupdater values:
              :wipeworkspace: - deletes the workspace before checking out
@@ -327,16 +445,13 @@ def svn(self, xml_parent, data):
              :emulateclean:  - delete unversioned/ignored files then update
              :update:        - do an svn update as much as possible
 
-    Example::
+    Multiple repos example:
 
-      scm:
-        - svn:
-           workspaceupdater: update
-           repos:
-             - url: http://svn.example.com/repo
-               basedir: .
-             - url: http://svn.example.com/repo2
-               basedir: repo2
+    .. literalinclude:: /../../tests/scm/fixtures/svn-multiple-repos-001.yaml
+
+    Advanced commit filtering example:
+
+    .. literalinclude:: /../../tests/scm/fixtures/svn-regions-001.yaml
     """
     scm = XML.SubElement(xml_parent, 'scm', {'class':
                          'hudson.scm.SubversionSCM'})
@@ -348,11 +463,17 @@ def svn(self, xml_parent, data):
                                     'hudson.scm.SubversionSCM_-ModuleLocation')
             XML.SubElement(module, 'remote').text = repo['url']
             XML.SubElement(module, 'local').text = repo.get('basedir', '.')
+            if 'credentials-id' in repo:
+                XML.SubElement(module, 'credentialsId').text = repo[
+                    'credentials-id']
     elif 'url' in data:
         module = XML.SubElement(locations,
                                 'hudson.scm.SubversionSCM_-ModuleLocation')
         XML.SubElement(module, 'remote').text = data['url']
         XML.SubElement(module, 'local').text = data.get('basedir', '.')
+        if 'credentials-id' in data:
+            XML.SubElement(module, 'credentialsId').text = data[
+                'credentials-id']
     else:
         raise JenkinsJobsException("A top level url or repos list must exist")
     updater = data.get('workspaceupdater', 'wipeworkspace')
@@ -367,8 +488,35 @@ def svn(self, xml_parent, data):
     XML.SubElement(scm, 'workspaceUpdater', {'class':
                    'hudson.scm.subversion.' + updaterclass})
 
+    mapping = [
+        # option, xml name, default value
+        ("excluded-regions", 'excludedRegions', []),
+        ("included-regions", 'includedRegions', []),
+        ("excluded-users", 'excludedUsers', []),
+        ("exclusion-revprop-name", 'excludedRevprop', ''),
+        ("excluded-commit-messages", 'excludedCommitMessages', []),
+        ("ignore-property-changes-on-directories", 'ignoreDirPropChanges',
+            False),
+        ("filter-changelog", 'filterChangelog', False),
+    ]
 
-def tfs(self, xml_parent, data):
+    for optname, xmlname, defvalue in mapping:
+        if isinstance(defvalue, list):
+            val = '\n'.join(data.get(optname, defvalue))
+        else:
+            val = data.get(optname, defvalue)
+        # Skip adding xml entry if default is empty and no value given
+        if not val and (defvalue in ['', []]):
+            continue
+
+        xe = XML.SubElement(scm, xmlname)
+        if isinstance(defvalue, bool):
+            xe.text = str(val).lower()
+        else:
+            xe.text = str(val)
+
+
+def tfs(parser, xml_parent, data):
     """yaml: tfs
     Specifies the Team Foundation Server repository for this job.
     Requires the Jenkins `Team Foundation Server Plugin.
@@ -386,9 +534,9 @@ def tfs(self, xml_parent, data):
         server.
     :arg str login: The user name that is registered on the server. The user
         name must contain the name and the domain name. Entered as
-        domain\\\user or user\@domain (optional).
+        domain\\\\user or user\@domain (optional).
         **NOTE**: You must enter in at least two slashes for the
-        domain\\\user format in JJB YAML. It will be rendered normally.
+        domain\\\\user format in JJB YAML. It will be rendered normally.
     :arg str use-update: If true, Hudson will not delete the workspace at end
         of each build. This causes the artifacts from the previous build to
         remain when a new build starts. (default true)
@@ -492,7 +640,7 @@ def tfs(self, xml_parent, data):
                                                   'Browser'})
 
 
-def workspace(self, xml_parent, data):
+def workspace(parser, xml_parent, data):
     """yaml: workspace
     Specifies the cloned workspace for this job to use as a SCM source.
     Requires the Jenkins `Clone Workspace SCM Plugin.
@@ -530,6 +678,106 @@ def workspace(self, xml_parent, data):
         XML.SubElement(workspace, 'criteria').text = criteria
 
 
+def hg(self, xml_parent, data):
+    """yaml: hg
+    Specifies the mercurial SCM repository for this job.
+    Requires the Jenkins `Mercurial Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Mercurial+Plugin>`_
+
+    :arg str url: URL of the hg repository
+    :arg str credentials-id: ID of credentials to use to connect (optional)
+    :arg str revision-type: revision type to use (default 'branch')
+    :arg str revision: the branch or tag name you would like to track
+      (default 'default')
+    :arg list(str) modules: reduce unnecessary builds by specifying a list of
+      "modules" within the repository. A module is a directory name within the
+      repository that this project lives in. (default '')
+    :arg bool clean: wipe any local modifications or untracked files in the
+      repository checkout (default false)
+    :arg str subdir: check out the Mercurial repository into this
+      subdirectory of the job's workspace (optional)
+    :arg bool disable-changelog: do not calculate the Mercurial changelog
+      for each build (default false)
+    :arg str browser: what repository browser to use (default 'auto')
+    :arg str browser-url: url for the repository browser
+      (required if browser is set)
+
+    :browser values:
+        :fisheye:
+        :bitbucketweb:
+        :googlecode:
+        :hgweb:
+        :kilnhg:
+        :rhodecode:
+        :rhodecodelegacy:
+
+    Example:
+
+    .. literalinclude:: ../../tests/scm/fixtures/hg02.yaml
+    """
+    scm = XML.SubElement(xml_parent, 'scm', {'class':
+                         'hudson.plugins.mercurial.MercurialSCM'})
+    if 'url' in data:
+        XML.SubElement(scm, 'source').text = data['url']
+    else:
+        raise JenkinsJobsException("A top level url must exist")
+
+    if 'credentials-id' in data:
+        XML.SubElement(scm, 'credentialsId').text = data['credentials-id']
+
+    revision_type_dict = {
+        'branch': 'BRANCH',
+        'tag': 'TAG',
+    }
+    try:
+        revision_type = revision_type_dict[data.get('revision-type', 'branch')]
+    except KeyError:
+        raise JenkinsJobsException('Invalid revision-type %r' %
+                                   data.get('revision-type'))
+    XML.SubElement(scm, 'revisionType').text = revision_type
+
+    XML.SubElement(scm, 'revision').text = data.get('revision', 'default')
+
+    if 'subdir' in data:
+        XML.SubElement(scm, 'subdir').text = data['subdir']
+
+    xc = XML.SubElement(scm, 'clean')
+    xc.text = str(data.get('clean', False)).lower()
+
+    modules = data.get('modules', '')
+    if isinstance(modules, list):
+        modules = " ".join(modules)
+    XML.SubElement(scm, 'modules').text = modules
+
+    xd = XML.SubElement(scm, 'disableChangeLog')
+    xd.text = str(data.get('disable-changelog', False)).lower()
+
+    browser = data.get('browser', 'auto')
+    browserdict = {
+        'auto': '',
+        'bitbucket': 'BitBucket',
+        'fisheye': 'FishEye',
+        'googlecode': 'GoogleCode',
+        'hgweb': 'HgWeb',
+        'kilnhg': 'KilnHG',
+        'rhodecode': 'RhodeCode',
+        'rhodecode-pre-1.2.0': 'RhodeCodeLegacy'
+    }
+
+    if browser not in browserdict:
+        raise JenkinsJobsException("Browser entered is not valid must be one "
+                                   "of: %s" % ", ".join(browserdict.keys()))
+    if browser != 'auto':
+        bc = XML.SubElement(scm, 'browser', {'class':
+                            'hudson.plugins.mercurial.browser.' +
+                            browserdict[browser]})
+        if 'browser-url' in data:
+            XML.SubElement(bc, 'url').text = data['browser-url']
+        else:
+            raise JenkinsJobsException("A browser-url must be specified along "
+                                       "with browser.")
+
+
 class SCM(jenkins_jobs.modules.base.Base):
     sequence = 30
 
@@ -537,14 +785,16 @@ class SCM(jenkins_jobs.modules.base.Base):
     component_list_type = 'scm'
 
     def gen_xml(self, parser, xml_parent, data):
-        scms = data.get('scm', [])
-        if scms:
-            if len(scms) > 1:
-                class_name = 'org.jenkinsci.plugins.multiplescms.MultiSCM'
-                xml_attribs = {'class': class_name}
-                xml_parent = XML.SubElement(xml_parent, 'scm', xml_attribs)
-                xml_parent = XML.SubElement(xml_parent, 'scms')
-            for scm in data.get('scm', []):
-                self.registry.dispatch('scm', parser, xml_parent, scm)
-        else:
+        scms_parent = XML.Element('scms')
+        for scm in data.get('scm', []):
+            self.registry.dispatch('scm', parser, scms_parent, scm)
+        scms_count = len(scms_parent)
+        if scms_count == 0:
             XML.SubElement(xml_parent, 'scm', {'class': 'hudson.scm.NullSCM'})
+        elif scms_count == 1:
+            xml_parent.append(scms_parent[0])
+        else:
+            class_name = 'org.jenkinsci.plugins.multiplescms.MultiSCM'
+            xml_attribs = {'class': class_name}
+            xml_parent = XML.SubElement(xml_parent, 'scm', xml_attribs)
+            xml_parent.append(scms_parent)

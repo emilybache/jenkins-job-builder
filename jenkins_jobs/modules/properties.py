@@ -28,13 +28,14 @@ Example::
 
     properties:
       - github:
-          url: https://github.com/openstack-ci/jenkins-job-builder/
+          url: https://github.com/openstack-infra/jenkins-job-builder/
 """
 
 
 import xml.etree.ElementTree as XML
 import jenkins_jobs.modules.base
 from jenkins_jobs.errors import JenkinsJobsException
+import logging
 
 
 def builds_chain_fingerprinter(parser, xml_parent, data):
@@ -136,7 +137,7 @@ def github(parser, xml_parent, data):
 
       properties:
         - github:
-            url: https://github.com/openstack-ci/jenkins-job-builder/
+            url: https://github.com/openstack-infra/jenkins-job-builder/
     """
     github = XML.SubElement(xml_parent,
                             'com.coravy.hudson.plugins.github.'
@@ -213,7 +214,7 @@ def throttle(parser, xml_parent, data):
 
 def inject(parser, xml_parent, data):
     """yaml: inject
-    Allows you to inject evironment variables into the build.
+    Allows you to inject environment variables into the build.
     Requires the Jenkins `Env Inject Plugin.
     <https://wiki.jenkins-ci.org/display/JENKINS/EnvInject+Plugin>`_
 
@@ -226,12 +227,14 @@ def inject(parser, xml_parent, data):
     :arg bool enabled: injection enabled (default true)
     :arg bool keep-system-variables: keep system variables (default true)
     :arg bool keep-build-variables: keep build variable (default true)
+    :arg bool override-build-parameters: override build parameters
+        (default false)
 
-    Example::
+    Example:
 
-      properties:
-        - inject:
-            properties-content: FOO=bar
+    .. literalinclude:: /../../tests/properties/fixtures/inject001.yaml
+       :language: yaml
+
     """
     inject = XML.SubElement(xml_parent,
                             'EnvInjectJobProperty')
@@ -256,6 +259,8 @@ def inject(parser, xml_parent, data):
         data.get('keep-system-variables', True)).lower()
     XML.SubElement(inject, 'keepBuildVariables').text = str(
         data.get('keep-build-variables', True)).lower()
+    XML.SubElement(inject, 'overrideBuildParameters').text = str(
+        data.get('override-build-parameters', False)).lower()
 
 
 def authenticated_build(parser, xml_parent, data):
@@ -287,6 +292,7 @@ def authorization(parser, xml_parent, data):
       job-delete
       job-configure
       job-read
+      job-extended-read
       job-discover
       job-build
       job-workspace
@@ -313,12 +319,14 @@ def authorization(parser, xml_parent, data):
             anonymous:
               - job-discover
               - job-read
+              - job-extended-read
     """
 
     mapping = {
         'job-delete': 'hudson.model.Item.Delete',
         'job-configure': 'hudson.model.Item.Configure',
         'job-read': 'hudson.model.Item.Read',
+        'job-extended-read': 'hudson.model.Item.ExtendedRead',
         'job-discover': 'hudson.model.Item.Discover',
         'job-build': 'hudson.model.Item.Build',
         'job-workspace': 'hudson.model.Item.Workspace',
@@ -339,78 +347,19 @@ def authorization(parser, xml_parent, data):
 
 def extended_choice(parser, xml_parent, data):
     """yaml: extended-choice
-    Creates an extended choice property where values can be read from a file
-    Requires the Jenkins `Extended Choice Parameter Plugin.
-    <https://wiki.jenkins-ci.org/display/JENKINS/
-    Extended+Choice+Parameter+plugin>`_
-
-    :arg string name: name of the property
-    :arg string description: description of the property (optional, default '')
-    :arg string property-file: location of property file to read from
-        (optional, default '')
-    :arg string property-key: key for the property-file (optional, default '')
-    :arg bool quote-value: whether to put quotes around the property
-        when passing to Jenkins (optional, default false)
-    :arg string visible-items: number of items to show in the list
-        (optional, default 5)
-    :arg string type: type of select (optional, default single-select)
-    :arg string value: comma separated list of values for the single select
-        or multi-select box (optional, default '')
-    :arg string default-value: used to set the initial selection of the
-        single-select or multi-select box (optional, default '')
-    :arg string default-property-file: location of property file when default
-        value needs to come from a property file (optional, default '')
-    :arg string default-property-key: key for the default property file
-        (optional, default '')
-
-    Example::
-
-      properties:
-        - extended-choice:
-            name: FOO
-            description: A foo property
-            property-file: /home/foo/property.prop
-            property-key: key
-            quote-value: true
-            visible-items: 10
-            type: multi-select
-            value: foo,bar,select
-            default-value: foo
-            default-property-file: /home/property.prop
-            default-property-key: fookey
+    Use of this config option is deprecated.  You should use the
+    `extended-choice` option in the parameter section of the job configuration
+    instead.
     """
+    logger = logging.getLogger("%s:extended_choice" % __name__)
+    logger.warn('Use of the extended-choice property is deprecated.  You '
+                'should use the extended-choice option in the parameter '
+                'section instead.')
     definition = XML.SubElement(xml_parent,
                                 'hudson.model.ParametersDefinitionProperty')
     definitions = XML.SubElement(definition, 'parameterDefinitions')
-    extended = XML.SubElement(definitions, 'com.cwctravel.hudson.plugins.'
-                                           'extended__choice__parameter.'
-                                           'ExtendedChoiceParameterDefinition')
-    XML.SubElement(extended, 'name').text = data['name']
-    XML.SubElement(extended, 'description').text = data.get('description', '')
-    XML.SubElement(extended, 'quoteValue').text = str(data.get('quote-value',
-                                                      False)).lower()
-    XML.SubElement(extended, 'visibleItemCount').text = data.get(
-        'visible-items', '5')
-    choice = data.get('type', 'single-select')
-    choicedict = {'single-select': 'PT_SINGLE_SELECT',
-                  'multi-select': 'PT_MULTI_SELECT',
-                  'radio': 'PT_RADIO',
-                  'checkbox': 'PT_CHECKBOX'}
-    if choice not in choicedict:
-        raise JenkinsJobsException("Type entered is not valid, must be one "
-                                   "of: single-select, multi-select, radio, "
-                                   "or checkbox")
-    XML.SubElement(extended, 'type').text = choicedict[choice]
-    XML.SubElement(extended, 'value').text = data.get('value', '')
-    XML.SubElement(extended, 'propertyFile').text = data.get('property-file',
-                                                             '')
-    XML.SubElement(extended, 'propertyKey').text = data.get('property-key', '')
-    XML.SubElement(extended, 'defaultValue').text = data.get('default-value',
-                                                             '')
-    XML.SubElement(extended, 'defaultPropertyFile').text = data.get(
-        'default-property-file', '')
-    XML.SubElement(extended, 'defaultPropertyKey').text = data.get(
-        'default-property-key', '')
+    parser.registry.dispatch('parameter', parser, definitions,
+                             {'extended-choice': data})
 
 
 def priority_sorter(parser, xml_parent, data):
@@ -446,7 +395,7 @@ def build_blocker(parser, xml_parent, data):
     <https://wiki.jenkins-ci.org/display/JENKINS/Build+Blocker+Plugin>`_
 
     :arg bool use-build-blocker: Enable or disable build blocker
-        (optional, defaults to True)
+        (optional) (default true)
     :arg list blocking-jobs: One regular expression per line
         to select blocking jobs by their names. (required)
 
@@ -548,7 +497,7 @@ def heavy_job(parser, xml_parent, data):
     <https://wiki.jenkins-ci.org/display/JENKINS/Heavy+Job+Plugin>`_
 
     :arg int weight: Specify the total number of executors
-        that this job should occupy (defaults to 1)
+        that this job should occupy (default 1)
 
 
     Example:

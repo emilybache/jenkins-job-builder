@@ -1,8 +1,3 @@
-.. Jenkins Job Builder documentation master file, created by
-   sphinx-quickstart on Mon Sep 10 19:36:21 2012.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
-
 Jenkins Job Builder
 ===================
 
@@ -22,7 +17,7 @@ Contents:
    :maxdepth: 3
 
    installation
-   configuration
+   definition
    extending
 
 Indices and tables

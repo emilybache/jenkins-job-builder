@@ -23,6 +23,12 @@
               <pattern>subdirectory/**</pattern>
             </com.sonyericsson.hudson.plugins.gerrit.trigger.hudsontrigger.data.FilePath>
           </filePaths>
+          <topics>
+            <com.sonyericsson.hudson.plugins.gerrit.trigger.hudsontrigger.data.Topic>
+              <compareType>ANT</compareType>
+              <pattern>refactor-xy**</pattern>
+            </com.sonyericsson.hudson.plugins.gerrit.trigger.hudsontrigger.data.Topic>
+          </topics>
         </com.sonyericsson.hudson.plugins.gerrit.trigger.hudsontrigger.data.GerritProject>
       </gerritProjects>
       <skipVote>
@@ -36,7 +42,9 @@
       <noNameAndEmailParameters>false</noNameAndEmailParameters>
       <dynamicTriggerConfiguration>True</dynamicTriggerConfiguration>
       <triggerConfigURL>http://myhost/mytrigger</triggerConfigURL>
+      <allowTriggeringUnreviewedPatches>true</allowTriggeringUnreviewedPatches>
       <triggerOnEvents>
+        <com.sonyericsson.hudson.plugins.gerrit.trigger.hudsontrigger.events.PluginPatchsetCreatedEvent/>
         <com.sonyericsson.hudson.plugins.gerrit.trigger.hudsontrigger.events.PluginCommentAddedEvent>
           <verdictCategory>APRV</verdictCategory>
           <commentAddedTriggerApprovalValue>1</commentAddedTriggerApprovalValue>
@@ -46,6 +54,7 @@
       <buildFailureMessage/>
       <buildSuccessfulMessage/>
       <buildUnstableMessage/>
+      <buildNotBuiltMessage/>
       <customUrl/>
       <serverName>my-server</serverName>
     </com.sonyericsson.hudson.plugins.gerrit.trigger.hudsontrigger.GerritTrigger>

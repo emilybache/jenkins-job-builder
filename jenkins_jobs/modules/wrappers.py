@@ -22,8 +22,10 @@ Wrappers can alter the way the build is run as well as the build output.
 
 """
 
+import logging
 import xml.etree.ElementTree as XML
 import jenkins_jobs.modules.base
+from jenkins_jobs.errors import JenkinsJobsException
 from jenkins_jobs.modules.builders import create_builders
 
 
@@ -54,6 +56,83 @@ def ci_skip(parser, xml_parent, data):
     XML.SubElement(obj, 'ci__skip', {
         'pluginid': 'ci-skip', 'ruby-class': 'NilClass'
     })
+
+
+def config_file_provider(parser, xml_parent, data):
+    """yaml: config-file-provider
+    Provide configuration files (i.e., settings.xml for maven etc.)
+    which will be copied to the job's workspace.
+    Requires the Jenkins `Config File Provider Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Config+File+Provider+Plugin>`_
+
+    :arg list files: List of managed config files made up of three\
+      parameters
+
+        :Parameter: * **file-id** (`str`)\
+        The identifier for the managed config file
+        :Parameter: * **target** (`str`)\
+        Define where the file should be created (optional)
+        :Parameter: * **variable** (`str`)\
+        Define an environment variable to be used (optional)
+
+    Example:
+
+    .. literalinclude:: \
+    /../../tests/wrappers/fixtures/config-file-provider003.yaml
+       :language: yaml
+    """
+    top = XML.SubElement(xml_parent, 'org.jenkinsci.plugins.configfiles.'
+                         'buildwrapper.ConfigFileBuildWrapper')
+    xml_files = XML.SubElement(top, 'managedFiles')
+
+    files = data.get('files', [])
+    for file in files:
+        xml_file = XML.SubElement(xml_files, 'org.jenkinsci.plugins.'
+                                  'configfiles.buildwrapper.ManagedFile')
+        file_id = file.get('file-id')
+        if file_id is None:
+            raise JenkinsJobsException("file-id is required for each "
+                                       "managed configuration file")
+        XML.SubElement(xml_file, 'fileId').text = str(file_id)
+        XML.SubElement(xml_file, 'targetLocation').text = \
+            file.get('target', '')
+        XML.SubElement(xml_file, 'variable').text = \
+            file.get('variable', '')
+
+
+def logfilesize(parser, xml_parent, data):
+    """yaml: logfilesize
+    Abort the build if its logfile becomes too big.
+    Requires the Jenkins `Logfilesizechecker Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Logfilesizechecker+Plugin>`_
+
+    :arg bool set-own: Use job specific maximum log size instead of global
+        config value (default false).
+    :arg bool fail: Make builds aborted by this wrapper be marked as "failed"
+        (default false).
+    :arg int size: Abort the build if logfile size is bigger than this
+        value (in MiB, default 128). Only applies if set-own is true.
+
+    Minimum config example:
+
+    .. literalinclude:: /../../tests/wrappers/fixtures/logfilesize002.yaml
+
+    Full config example:
+
+    .. literalinclude:: /../../tests/wrappers/fixtures/logfilesize001.yaml
+
+    """
+    lfswrapper = XML.SubElement(xml_parent,
+                                'hudson.plugins.logfilesizechecker.'
+                                'LogfilesizecheckerWrapper')
+    lfswrapper.set("plugin", "logfilesizechecker")
+
+    XML.SubElement(lfswrapper, 'setOwn').text = str(
+        data.get('set-own', 'false')).lower()
+    XML.SubElement(lfswrapper, 'maxLogSize').text = str(
+        data.get('size', '128')).lower()
+    XML.SubElement(lfswrapper, 'failBuild').text = str(
+        data.get('fail', 'false')).lower()
 
 
 def timeout(parser, xml_parent, data):
@@ -362,22 +441,29 @@ def port_allocator(parser, xml_parent, data):
     Requires the Jenkins `Port Allocator Plugin.
     <https://wiki.jenkins-ci.org/display/JENKINS/Port+Allocator+Plugin>`_
 
-    :arg str name: Variable name of the port or a specific port number
+    :arg str name: Deprecated, use names instead
+    :arg list names: Variable list of names of the port or list of
+        specific port numbers
 
-    Example::
+    Example:
 
-      wrappers:
-        - port-allocator:
-            name: SERVER_PORT
+    .. literalinclude::  /../../tests/wrappers/fixtures/port-allocator002.yaml
     """
     pa = XML.SubElement(xml_parent,
                         'org.jvnet.hudson.plugins.port__allocator.'
                         'PortAllocator')
     ports = XML.SubElement(pa, 'ports')
-    dpt = XML.SubElement(ports,
-                         'org.jvnet.hudson.plugins.port__allocator.'
-                         'DefaultPortType')
-    XML.SubElement(dpt, 'name').text = data['name']
+    names = data.get('names')
+    if not names:
+        logger = logging.getLogger(__name__)
+        logger.warn('port_allocator name is deprecated, use a names list '
+                    ' instead')
+        names = [data['name']]
+    for name in names:
+        dpt = XML.SubElement(ports,
+                             'org.jvnet.hudson.plugins.port__allocator.'
+                             'DefaultPortType')
+        XML.SubElement(dpt, 'name').text = name
 
 
 def locks(parser, xml_parent, data):
@@ -388,22 +474,21 @@ def locks(parser, xml_parent, data):
 
     :arg: list of locks to use
 
-    Example::
+    Example:
 
-      wrappers:
-        - locks:
-            - FOO
-            - FOO2
+    .. literalinclude::  /../../tests/wrappers/fixtures/locks002.yaml
+       :language: yaml
     """
-    lw = XML.SubElement(xml_parent,
-                        'hudson.plugins.locksandlatches.LockWrapper')
-    locktop = XML.SubElement(lw, 'locks')
     locks = data
-    for lock in locks:
-        lockwrapper = XML.SubElement(locktop,
-                                     'hudson.plugins.locksandlatches.'
-                                     'LockWrapper_-LockWaitConfig')
-        XML.SubElement(lockwrapper, 'name').text = lock
+    if locks:
+        lw = XML.SubElement(xml_parent,
+                            'hudson.plugins.locksandlatches.LockWrapper')
+        locktop = XML.SubElement(lw, 'locks')
+        for lock in locks:
+            lockwrapper = XML.SubElement(locktop,
+                                         'hudson.plugins.locksandlatches.'
+                                         'LockWrapper_-LockWaitConfig')
+            XML.SubElement(lockwrapper, 'name').text = lock
 
 
 def copy_to_slave(parser, xml_parent, data):
@@ -483,6 +568,31 @@ def inject(parser, xml_parent, data):
     XML.SubElement(info, 'loadFilesFromMaster').text = 'false'
 
 
+def inject_ownership_variables(parser, xml_parent, data):
+    """yaml: inject-ownership-variables
+    Inject ownership variables to the build as environment variables.
+    Requires the Jenkins `EnvInject Plugin and Jenkins Ownership plugin
+    <https://wiki.jenkins-ci.org/display/JENKINS/EnvInject+Plugin>
+    <https://wiki.jenkins-ci.org/display/JENKINS/Ownership+Plugin>`_
+
+    :arg bool job-variables: inject job ownership variables to the job
+        (default false)
+    :arg bool node-variables: inject node ownership variables to the job
+        (default false)
+
+    Example:
+
+    .. literalinclude:: /../../tests/wrappers/fixtures/ownership001.yaml
+
+    """
+    ownership = XML.SubElement(xml_parent, 'com.synopsys.arc.jenkins.plugins.'
+                               'ownership.wrappers.OwnershipBuildWrapper')
+    XML.SubElement(ownership, 'injectNodeOwnership').text = \
+        str(data.get('node-variables', False)).lower()
+    XML.SubElement(ownership, 'injectJobOwnership').text = \
+        str(data.get('job-variables', False)).lower()
+
+
 def inject_passwords(parser, xml_parent, data):
     """yaml: inject-passwords
     Inject passwords to the build as environment variables.
@@ -534,6 +644,27 @@ def env_file(parser, xml_parent, data):
                          'hudson.plugins.envfile.EnvFileBuildWrapper')
     jenkins_jobs.modules.base.add_nonblank_xml_subelement(
         eib, 'filePath', data.get('properties-file'))
+
+
+def env_script(parser, xml_parent, data):
+    """yaml: env-script
+    Add or override environment variables to the whole build process.
+    Requires the Jenkins `Environment Script Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Environment+Script+Plugin>`_
+
+    :arg script-content: The script to run (default: '')
+    :arg only-run-on-parent: Only applicable for Matrix Jobs. If true, run only
+      on the matrix parent job (default: false)
+
+    Example:
+
+    .. literalinclude:: /../../tests/wrappers/fixtures/env-script001.yaml
+
+    """
+    el = XML.SubElement(xml_parent, 'com.lookout.jenkins.EnvironmentScript')
+    XML.SubElement(el, 'script').text = data.get('script-content', '')
+    only_on_parent = str(data.get('only-run-on-parent', False)).lower()
+    XML.SubElement(el, 'onlyRunOnParent').text = only_on_parent
 
 
 def jclouds(parser, xml_parent, data):
@@ -611,29 +742,19 @@ def release(parser, xml_parent, data):
     Requires the Jenkins `Release Plugin.
     <https://wiki.jenkins-ci.org/display/JENKINS/Release+Plugin>`_
 
-    :arg bool keep-forever: Keep build forever (default is 'true')
+    :arg bool keep-forever: Keep build forever (default true)
     :arg bool override-build-parameters: Enable build-parameter override
-    :arg string version-template: Release version template
+        (default false)
+    :arg string version-template: Release version template (default '')
     :arg list parameters: Release parameters (see the :ref:`Parameters` module)
     :arg list pre-build: Pre-build steps (see the :ref:`Builders` module)
     :arg list post-build: Post-build steps (see :ref:`Builders`)
     :arg list post-success: Post successful-build steps (see :ref:`Builders`)
     :arg list post-failed: Post failed-build steps (see :ref:`Builders`)
 
-    Example::
+    Example:
 
-      wrappers:
-        - release:
-            keep-forever: false
-            parameters:
-                - string:
-                    name: RELEASE_BRANCH
-                    default: ''
-                    description: Git branch to release from.
-            post-success:
-                - shell: |
-                    #!/bin/bash
-                    copy_build_artefacts.sh
+    .. literalinclude:: /../../tests/wrappers/fixtures/release001.yaml
 
     """
     relwrap = XML.SubElement(xml_parent,
@@ -648,11 +769,11 @@ def release(parser, xml_parent, data):
         data.get('override-build-parameters', False)).lower()
     XML.SubElement(relwrap, 'releaseVersionTemplate').text = data.get(
         'version-template', '')
-    for param in data.get('parameters', []):
-        parser.registry.dispatch('parameter', parser,
-                                 XML.SubElement(relwrap,
-                                                'parameterDefinitions'),
-                                 param)
+    parameters = data.get('parameters', [])
+    if parameters:
+        pdef = XML.SubElement(relwrap, 'parameterDefinitions')
+        for param in parameters:
+            parser.registry.dispatch('parameter', parser, pdef, param)
 
     builder_steps = {
         'pre-build': 'preBuildSteps',
@@ -905,6 +1026,41 @@ def logstash(parser, xml_parent, data):
         key_sub_element.text = str(redis_config.get('key', 'logstash'))
 
 
+def mongo_db(parser, xml_parent, data):
+    """yaml: mongo-db build wrapper
+    Initalizes a MongoDB database while running the build.
+    Requires the Jenkins `MongoDB plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/MongoDB+Plugin>`_
+
+    :arg str name: The name of the MongoDB install to use
+    :arg str data-directory: Data directory for the server (optional)
+    :arg int port: Port for the server (optional)
+    :arg str startup-params: Startup parameters for the server (optional)
+    :arg int start-timeout: How long to wait for the server to start in
+        milliseconds. 0 means no timeout. (default '0')
+
+    Example:
+
+    .. literalinclude:: /../../tests/wrappers/fixtures/mongo-db001.yaml
+
+    """
+    mongodb = XML.SubElement(xml_parent,
+                             'org.jenkinsci.plugins.mongodb.'
+                             'MongoBuildWrapper')
+    mongodb.set('plugin', 'mongodb')
+
+    if not str(data.get('name', '')):
+        raise JenkinsJobsException('The mongo install name must be specified.')
+    XML.SubElement(mongodb, 'mongodbName').text = str(data.get('name', ''))
+    XML.SubElement(mongodb, 'port').text = str(data.get('port', ''))
+    XML.SubElement(mongodb, 'dbpath').text = str(data.get(
+        'data-directory', ''))
+    XML.SubElement(mongodb, 'parameters').text = str(data.get(
+        'startup-params', ''))
+    XML.SubElement(mongodb, 'startTimeout').text = str(data.get(
+        'start-timeout', '0'))
+
+
 def delivery_pipeline(parser, xml_parent, data):
     """yaml: delivery-pipeline
     If enabled the job will create a version based on the template.
@@ -940,6 +1096,8 @@ def matrix_tie_parent(parser, xml_parent, data):
     <https://wiki.jenkins-ci.org/display/JENKINS/Matrix+Tie+Parent+Plugin>`_
     Note that from Jenkins version 1.532 this plugin's functionality is
     available under the "advanced" option of the matrix project configuration.
+    You can use the top level ``node`` parameter to control where the parent
+    job is tied in Jenkins 1.532 and higher.
 
     :arg str node: Name of the node.
 
@@ -977,6 +1135,125 @@ def exclusion(parser, xml_parent, data):
             XML.SubElement(ids,
                            'org.jvnet.hudson.plugins.exclusion.DefaultIdType')
         XML.SubElement(dit, 'name').text = str(resource).upper()
+
+
+def ssh_agent_credentials(parser, xml_parent, data):
+    """yaml: ssh-agent-credentials
+    Sets up the user for the ssh agent plugin for jenkins.
+
+    Requires the Jenkins `SSH-Agent Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/SSH-Agent-Plugin>`_
+
+    :arg str user: The user id of the jenkins user credentials (required)
+
+    Example:
+
+    .. literalinclude::
+            /../../tests/wrappers/fixtures/ssh-agent-credentials001.yaml
+
+    """
+
+    entry_xml = XML.SubElement(
+        xml_parent,
+        'com.cloudbees.jenkins.plugins.sshagent.SSHAgentBuildWrapper')
+
+    try:
+        XML.SubElement(entry_xml, 'user').text = data['user']
+    except KeyError:
+        raise JenkinsJobsException("Missing 'user' for ssh-agent-credentials")
+
+
+def credentials_binding(parser, xml_parent, data):
+    """yaml: credentials-binding
+    Binds credentials to environment variables using the credentials binding
+    plugin for jenkins.
+
+    Requires the Jenkins `Credentials Binding Plugin
+    <https://wiki.jenkins-ci.org/display/JENKINS/Credentials+Binding+Plugin>`_
+    version 1.1 or greater.
+
+    :arg list binding-type: List of each bindings to create.  Bindings may be\
+                            of type `zip-file`, `file`, `username-password`,\
+                            or `text`
+
+        :Parameters: * **credential-id** (`str`) UUID of the credential being\
+                                                 referenced
+                     * **variable** (`str`) Environment variable where the\
+                                            credential will be stored
+
+    Example:
+
+    .. literalinclude::
+            /../../tests/wrappers/fixtures/credentials_binding.yaml
+            :language: yaml
+
+    """
+    entry_xml = XML.SubElement(
+        xml_parent,
+        'org.jenkinsci.plugins.credentialsbinding.impl.SecretBuildWrapper')
+    bindings_xml = XML.SubElement(entry_xml, 'bindings')
+    binding_types = {
+        'zip-file': 'org.jenkinsci.plugins.credentialsbinding.impl.'
+                    'ZipFileBinding',
+        'file': 'org.jenkinsci.plugins.credentialsbinding.impl.FileBinding',
+        'username-password': 'org.jenkinsci.plugins.credentialsbinding.impl.'
+                             'UsernamePasswordBinding',
+        'text': 'org.jenkinsci.plugins.credentialsbinding.impl.StringBinding'
+    }
+    if not data:
+        raise JenkinsJobsException('At least one binding-type must be '
+                                   'specified for the credentials-binding '
+                                   'element')
+    for binding in data:
+        for binding_type, params in binding.items():
+            if binding_type not in binding_types.keys():
+                raise JenkinsJobsException('binding-type must be one of %r' %
+                                           binding_types.keys())
+
+            binding_xml = XML.SubElement(bindings_xml,
+                                         binding_types[binding_type])
+            variable_xml = XML.SubElement(binding_xml, 'variable')
+            variable_xml.text = params.get('variable')
+            credential_xml = XML.SubElement(binding_xml, 'credentialsId')
+            credential_xml.text = params.get('credential-id')
+
+
+def custom_tools(parser, xml_parent, data):
+    """yaml: custom-tools
+    Requires the Jenkins Custom Tools Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Custom+Tools+Plugin>`_
+
+    :arg list tools: List of custom tools to add
+                     (optional)
+    :arg bool skip-master-install: skips the install in top level matrix job
+                                   (default 'false')
+    :arg bool convert-homes-to-upper: Converts the home env vars to uppercase
+                                      (default 'false')
+
+    Example:
+
+    .. literalinclude:: /../../tests/wrappers/fixtures/custom-tools001.yaml
+    """
+    base = 'com.cloudbees.jenkins.plugins.customtools'
+    wrapper = XML.SubElement(xml_parent,
+                             base + ".CustomToolInstallWrapper")
+
+    wrapper_tools = XML.SubElement(wrapper, 'selectedTools')
+    tools = data.get('tools', [])
+    tool_node = base + '.CustomToolInstallWrapper_-SelectedTool'
+    for tool in tools:
+        tool_wrapper = XML.SubElement(wrapper_tools, tool_node)
+        XML.SubElement(tool_wrapper, 'name').text = str(tool)
+
+    opts = XML.SubElement(wrapper,
+                          'multiconfigOptions')
+    skip_install = str(data.get('skip-master-install', 'false'))
+    XML.SubElement(opts,
+                   'skipMasterInstallation').text = skip_install
+
+    convert_home = str(data.get('convert-homes-to-upper', 'false'))
+    XML.SubElement(wrapper,
+                   'convertHomesToUppercase').text = convert_home
 
 
 class Wrappers(jenkins_jobs.modules.base.Base):

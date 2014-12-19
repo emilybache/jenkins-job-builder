@@ -35,6 +35,7 @@ Example::
 
 import xml.etree.ElementTree as XML
 import jenkins_jobs.modules.base
+from jenkins_jobs.errors import JenkinsJobsException
 
 
 def base_param(parser, xml_parent, data, do_default, ptype):
@@ -170,6 +171,47 @@ def label_param(parser, xml_parent, data):
                'LabelParameterDefinition')
 
 
+def node_param(parser, xml_parent, data):
+    """yaml: node
+    Defines a list of nodes where this job could potentially be executed on.
+    Restrict where this project can be run, If your using a node or label
+    parameter to run your job on a particular node, you should not use the
+    option "Restrict where this project can be run" in the job configuration
+    - it will not have any effect to the selection of your node anymore!
+
+    :arg str name: the name of the parameter
+    :arg str description: a description of the parameter (optional)
+    :arg list default-nodes: The nodes used when job gets triggered
+        by anything else other than manually
+    :arg list allowed-slaves: The nodes available for selection
+        when job gets triggered manually. Empty means 'All'.
+    :arg bool ignore-offline-nodes: Ignore nodes not online or not having
+        executors (default false)
+
+    Example:
+
+    .. literalinclude::  /../../tests/parameters/fixtures/node-param001.yaml
+       :language: yaml
+
+    """
+    pdef = base_param(parser, xml_parent, data, False,
+                      'org.jvnet.jenkins.plugins.nodelabelparameter.'
+                      'NodeParameterDefinition')
+    default = XML.SubElement(pdef, 'defaultSlaves')
+    if 'default-slaves' in data:
+        for slave in data['default-slaves']:
+            XML.SubElement(default, 'string').text = slave
+    allowed = XML.SubElement(pdef, 'allowedSlaves')
+    if 'allowed-slaves' in data:
+        for slave in data['allowed-slaves']:
+            XML.SubElement(allowed, 'string').text = slave
+    XML.SubElement(pdef, 'ignoreOfflineNodes').text = str(
+        data.get('ignore-offline-nodes', False)).lower()
+
+    XML.SubElement(pdef, 'triggerIfResult').text = \
+        'multiSelectionDisallowed'
+
+
 def choice_param(parser, xml_parent, data):
     """yaml: choice
     A single selection parameter.
@@ -195,6 +237,102 @@ def choice_param(parser, xml_parent, data):
     a = XML.SubElement(choices, 'a', {'class': 'string-array'})
     for choice in data['choices']:
         XML.SubElement(a, 'string').text = choice
+
+
+def run_param(parser, xml_parent, data):
+    """yaml: run
+    A run parameter.
+
+    :arg str name: the name of the parameter
+    :arg str project-name: the name of job from which the user can pick runs
+    :arg str description: a description of the parameter (optional)
+
+    Example:
+
+    .. literalinclude::  /../../tests/parameters/fixtures/run-param001.yaml
+       :language: yaml
+
+    """
+    pdef = base_param(parser, xml_parent, data, False,
+                      'hudson.model.RunParameterDefinition')
+    XML.SubElement(pdef, 'projectName').text = data['project-name']
+
+
+def extended_choice_param(parser, xml_parent, data):
+    """yaml: extended-choice
+    Creates an extended choice parameter where values can be read from a file
+    Requires the Jenkins `Extended Choice Parameter Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/
+    Extended+Choice+Parameter+plugin>`_
+
+    :arg str name: name of the parameter
+    :arg str description: description of the parameter
+        (optional, default '')
+    :arg str property-file: location of property file to read from
+        (optional, default '')
+    :arg str property-key: key for the property-file (optional, default '')
+    :arg bool quote-value: whether to put quotes around the property
+        when passing to Jenkins (optional, default false)
+    :arg str visible-items: number of items to show in the list
+        (optional, default 5)
+    :arg str type: type of select, can be single-select, multi-select,
+        radio, checkbox or textbox (optional, default single-select)
+    :arg str value: comma separated list of values for the single select
+        or multi-select box (optional, default '')
+    :arg str default-value: used to set the initial selection of the
+        single-select or multi-select box (optional, default '')
+    :arg str default-property-file: location of property file when default
+        value needs to come from a property file (optional, default '')
+    :arg str default-property-key: key for the default property file
+        (optional, default '')
+    :arg str multi-select-delimiter: value between selections when the
+        parameter is a multi-select (optiona, default ',')
+
+    Example:
+
+    .. literalinclude:: \
+    /../../tests/parameters/fixtures/extended-choice-param001.yaml
+       :language: yaml
+
+    """
+    pdef = base_param(parser, xml_parent, data, False,
+                      'com.cwctravel.hudson.plugins.'
+                      'extended__choice__parameter.'
+                      'ExtendedChoiceParameterDefinition')
+    XML.SubElement(pdef, 'value').text = data.get('value', '')
+    XML.SubElement(pdef, 'visibleItemCount').text = str(data.get(
+        'visible-items', data.get('visible-item-count', 5)))
+    XML.SubElement(pdef, 'multiSelectDelimiter').text = data.get(
+        'multi-select-delimiter', ',')
+    XML.SubElement(pdef, 'quoteValue').text = str(data.get('quote-value',
+                                                  False)).lower()
+    XML.SubElement(pdef, 'defaultValue').text = data.get(
+        'default-value', '')
+
+    choice = data.get('type', 'single-select')
+    choicedict = {'single-select': 'PT_SINGLE_SELECT',
+                  'multi-select': 'PT_MULTI_SELECT',
+                  'radio': 'PT_RADIO',
+                  'checkbox': 'PT_CHECKBOX',
+                  'textbox': 'PT_TEXTBOX',
+                  'PT_SINGLE_SELECT': 'PT_SINGLE_SELECT',
+                  'PT_MULTI_SELECT': 'PT_MULTI_SELECT',
+                  'PT_RADIO': 'PT_RADIO',
+                  'PT_CHECKBOX': 'PT_CHECKBOX',
+                  'PT_TEXTBOX': 'PT_TEXTBOX'}
+
+    if choice in choicedict:
+        XML.SubElement(pdef, 'type').text = choicedict[choice]
+    else:
+        raise JenkinsJobsException("Type entered is not valid, must be one "
+                                   "of: single-select, multi-select, radio, "
+                                   "textbox or checkbox")
+    XML.SubElement(pdef, 'propertyFile').text = data.get('property-file', '')
+    XML.SubElement(pdef, 'propertyKey').text = data.get('property-key', '')
+    XML.SubElement(pdef, 'defaultPropertyFile').text = data.get(
+        'default-property-file', '')
+    XML.SubElement(pdef, 'defaultPropertyKey').text = data.get(
+        'default-property-key', '')
 
 
 def validating_string_param(parser, xml_parent, data):
@@ -272,10 +410,10 @@ def dynamic_choice_param(parser, xml_parent, data):
     :arg str description: a description of the parameter (optional)
     :arg str script: Groovy expression which generates the potential choices.
     :arg bool remote: the script will be executed on the slave where the build
-        is started (default is false)
+        is started (default false)
     :arg str classpath: class path for script (optional)
     :arg bool read-only: user can't modify parameter once populated
-        (default is false)
+        (default false)
 
     Example::
 
@@ -301,10 +439,10 @@ def dynamic_string_param(parser, xml_parent, data):
     :arg str description: a description of the parameter (optional)
     :arg str script: Groovy expression which generates the potential choices
     :arg bool remote: the script will be executed on the slave where the build
-        is started (default is false)
+        is started (default false)
     :arg str classpath: class path for script (optional)
     :arg bool read-only: user can't modify parameter once populated
-        (default is false)
+        (default false)
 
     Example::
 
@@ -334,9 +472,9 @@ def dynamic_choice_scriptler_param(parser, xml_parent, data):
         :Parameter: * **name** (`str`) Parameter name
                     * **value** (`str`) Parameter value
     :arg bool remote: the script will be executed on the slave where the build
-        is started (default is false)
+        is started (default false)
     :arg bool read-only: user can't modify parameter once populated
-        (default is false)
+        (default false)
 
     Example::
 
@@ -372,9 +510,9 @@ def dynamic_string_scriptler_param(parser, xml_parent, data):
         :Parameter: * **name** (`str`) Parameter name
                     * **value** (`str`) Parameter value
     :arg bool remote: the script will be executed on the slave where the build
-        is started (default is false)
+        is started (default false)
     :arg bool read-only: user can't modify parameter once populated
-        (default is false)
+        (default false)
 
     Example::
 
@@ -439,6 +577,40 @@ def dynamic_scriptler_param_common(parser, xml_parent, data, ptype):
         'read-only', False)).lower()
 
 
+def matrix_combinations_param(parser, xml_parent, data):
+    """yaml: matrix-combinations
+    Matrix combinations parameter
+    Requires the Jenkins `Matrix Combinations Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Matrix+Combinations+Plugin>`_
+
+    :arg str name: the name of the parameter
+    :arg str description: a description of the parameter (optional)
+    :arg str filter: Groovy expression to use filter the combination by
+        default (optional)
+
+    Example:
+
+    .. literalinclude:: \
+    /../../tests/parameters/fixtures/matrix-combinations-param001.yaml
+       :language: yaml
+
+    """
+    element_name = 'hudson.plugins.matrix__configuration__parameter.' \
+                   'MatrixCombinationsParameterDefinition'
+    pdef = XML.SubElement(xml_parent, element_name)
+    if 'name' not in data:
+        raise JenkinsJobsException('matrix-combinations must have a name '
+                                   'parameter.')
+    XML.SubElement(pdef, 'name').text = data['name']
+    XML.SubElement(pdef, 'description').text = data.get('description', '')
+    combination_filter = data.get('filter')
+    if combination_filter:
+        XML.SubElement(pdef, 'defaultCombinationFilter').text = \
+            combination_filter
+
+    return pdef
+
+
 class Parameters(jenkins_jobs.modules.base.Base):
     sequence = 21
 
@@ -451,10 +623,20 @@ class Parameters(jenkins_jobs.modules.base.Base):
             properties = XML.SubElement(xml_parent, 'properties')
 
         parameters = data.get('parameters', [])
+        hmodel = 'hudson.model.'
         if parameters:
-            pdefp = XML.SubElement(properties,
-                                   'hudson.model.ParametersDefinitionProperty')
-            pdefs = XML.SubElement(pdefp, 'parameterDefinitions')
+            # The conditionals here are to work around the extended_choice
+            # parameter also being definable in the properties module.  This
+            # usage has been deprecated but not removed.  Because it may have
+            # added these elements before us, we need to check if they already
+            # exist, and only add them if they're missing.
+            pdefp = properties.find(hmodel + 'ParametersDefinitionProperty')
+            if pdefp is None:
+                pdefp = XML.SubElement(properties,
+                                       hmodel + 'ParametersDefinitionProperty')
+            pdefs = pdefp.find('parameterDefinitions')
+            if pdefs is None:
+                pdefs = XML.SubElement(pdefp, 'parameterDefinitions')
             for param in parameters:
                 self.registry.dispatch('parameter',
                                        parser, pdefs, param)

@@ -9,7 +9,7 @@ The OpenStack project uses Puppet to manage its infrastructure
 systems, including Jenkins.  If you use Puppet, you can use the
 `OpenStack Jenkins module`__ to install Jenkins Job Builder.
 
-__ https://github.com/openstack-infra/config/tree/master/modules/jenkins
+__ https://git.openstack.org/cgit/openstack-infra/config/tree/modules/jenkins
 
 Documentation
 -------------
@@ -17,7 +17,7 @@ Documentation
 Documentation is included in the ``doc`` folder. To generate docs
 locally execute the command::
 
-    tox -e doc
+    tox -e docs
 
 The generated documentation is then available under
 ``doc/build/html/index.html``.
@@ -33,6 +33,13 @@ every module.  To run the unit tests, execute the command::
     tox -e py27
 
 * Note: View ``tox.ini`` to run tests on other versions of Python.
+
+Test Coverage
+-------------
+
+To measure test coverage, execute the command::
+
+    tox -e cover
 
 Configuration File
 ------------------
@@ -57,6 +64,21 @@ job_builder section
   description has been defined explicitly.
   When this option is set to True, that behavior changes and it will only
   overwrite the description if you specified it in the yaml. False by default.
+
+**include_path**
+  (Optional) Can be set to a ':' delimited list of paths, which jenkins
+  job builder will search for any files specified by the custom application
+  yaml tags 'include', 'include-raw' and 'include-raw-escaped'.
+
+**recursive**
+  (Optional) If set to True, jenkins job builder will search for job
+  definition files recursively
+
+**allow_duplicates**
+  (Optional) By default `jenkins-jobs` will abort any time a duplicate macro,
+  template, job-group or job name is encountered as it cannot establish the
+  correct one to use. When this option is set to True, only a warning is
+  emitted.
 
 jenkins section
 ^^^^^^^^^^^^^^^
@@ -85,43 +107,98 @@ Builder by running ``jenkins-jobs``.  You won't be able to do anything
 useful just yet without a configuration which is discussed in the next
 section.
 
-Usage
-^^^^^
-.. program-output:: jenkins-jobs --help
+Test Mode
+^^^^^^^^^
+Once you have a configuration defined, you can run the job builder in test mode.
 
-Testing JJB
-^^^^^^^^^^^
-Once you have a configuration defined, you can test the job builder by running::
+If you want to run a simple test with just a single YAML job definition file
+and see the XML output on stdout::
 
-  jenkins-jobs test /path/to/config -o /path/to/output
+  jenkins-jobs test /path/to/foo.yaml
+
+You can also pass JJB a directory containing multiple job definition files::
+
+  jenkins-jobs test /path/to/defs -o /path/to/output
 
 which will write XML files to the output directory for all of the jobs
-defined in the configuration directory.
+defined in the defs directory.
 
-If you want to run a simple test with just a single YAML file and see the XML
-output on stdout::
-
-  jenkins-jobs test /path/to/config
-
-Updating Jenkins
-^^^^^^^^^^^^^^^^
+Updating Jobs
+^^^^^^^^^^^^^
 When you're satisfied with the generated XML from the test, you can run::
 
-  jenkins-jobs update /path/to/config
+  jenkins-jobs update /path/to/defs
 
-which will upload the configurations to Jenkins if needed.  Jenkins Job
+which will upload the job definitions to Jenkins if needed.  Jenkins Job
 Builder maintains, for each host, a cache [#f1]_ of previously configured jobs,
 so that you can run that command as often as you like, and it will only
-update the configuration in Jenkins if the defined configuration has
+update the jobs configurations in Jenkins if the defined definitions has
 changed since the last time it was run.  Note: if you modify a job
 directly in Jenkins, jenkins-jobs will not know about it and will not
 update it.
 
 To update a specific list of jobs, simply pass them as additional
-arguments after the configuration path. To update Foo1 and Foo2 run::
+arguments after the job definition path. To update Foo1 and Foo2 run::
 
-  jenkins-jobs update /path/to/config Foo1 Foo2
+  jenkins-jobs update /path/to/defs Foo1 Foo2
 
+Passing Multiple Paths
+^^^^^^^^^^^^^^^^^^^^^^
+It is possible to pass multiple paths to JJB using colons as a path separator on
+\*nix systems and semi-colons on Windows systems. For example::
+
+  jenkins-jobs test /path/to/global:/path/to/instance:/path/to/instance/project
+
+This helps when structuring directory layouts as you may selectively include
+directories in different ways to suit different needs. If you maintain multiple
+Jenkins instances suited to various needs you may want to share configuration
+between those instances (global). Furthermore, there may be various ways you
+would like to structure jobs within a given instance.
+
+Deleting Jobs
+^^^^^^^^^^^^^
+Jenkins Job Builder supports deleting jobs from Jenkins.
+
+To delete a specific job::
+
+  jenkins-jobs delete Foo1
+
+To delete a list of jobs, simply pass them as additional
+arguments after the command::
+
+  jenkins-jobs delete Foo1 Foo2
+
+The ``update`` command includes a ``delete-old`` option to remove obsolete
+jobs.  Obsolete jobs are *all* jobs not managed by JJB, even jobs which
+were *never* managed by JJB::
+
+  jenkins-jobs update --delete-old /path/to/defs
+
+There is also a command to delete **all** jobs.
+**WARNING**: Use with caution::
+
+  jenkins-jobs delete-all
+
+Globbed Parameters
+^^^^^^^^^^^^^^^^^^
+Jenkins job builder supports globbed parameters to identify jobs from a set of
+definition files.  This feature only supports JJB managed jobs.
+
+To update jobs that only have 'foo' in their name::
+
+  jenkins-jobs update ./myjobs \*foo\*
+
+To delete jobs that only have 'foo' in their name::
+
+  jenkins-jobs delete --path ./myjobs \*foo\*
+
+Command Reference
+^^^^^^^^^^^^^^^^^
+.. program-output:: jenkins-jobs --help
+.. program-output:: jenkins-jobs test --help
+.. program-output:: jenkins-jobs update --help
+.. program-output:: jenkins-jobs delete-all --help
+.. program-output:: jenkins-jobs delete --help
 
 .. rubric:: Footnotes
 .. [#f1] The cache default location is at ``~/.cache/jenkins_jobs``, which
